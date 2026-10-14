@@ -1,5 +1,6 @@
 import {projectDuration,type Project} from '../shared/types';
 import {cutTimelineRange} from '../shared/timeline-edits';
+import {plainView} from './project-draft';
 export interface TranscriptWord {id:string;captionId:string;text:string;start:number;end:number;timed:boolean;}
 export interface WordSelection {anchor:number;focus:number;}
 const normalized=(s:string)=>s.replace(/\s+/g,' ').trim();
@@ -17,5 +18,5 @@ export function selectedTranscriptRange(p:Project,words:TranscriptWord[],selecti
  if(end-start<.001)return null;
  return {start,end,text:chosen.map(w=>w.text).join(' '),wordCount:chosen.length,wholeCaptions:chosen.some(w=>!w.timed),limited:start>first+.000001||end<last-.000001};
 }
-export function deleteTranscriptSelection(p:Project,selection:WordSelection,padding=.02){const words=transcriptWords(p),range=selectedTranscriptRange(p,words,selection,padding);if(!range)throw Error('Select words with usable timing before deleting.');cutTimelineRange(p,range.start,range.end,true);return range;}
+export function deleteTranscriptSelection(p:Project,selection:WordSelection,padding=.02){const view=plainView(p),words=transcriptWords(view),range=selectedTranscriptRange(view,words,selection,padding);if(!range)throw Error('Select words with usable timing before deleting.');cutTimelineRange(p,range.start,range.end,true,view);return range;}
 export function sentenceSelection(words:TranscriptWord[],index:number):WordSelection{let a=index,b=index;const end=(w:TranscriptWord)=>/[.!?。！？][”"')\]]*$/.test(w.text)||!w.timed;while(a>0&&!end(words[a-1]))a--;while(b<words.length-1&&!end(words[b]))b++;return {anchor:a,focus:b};}

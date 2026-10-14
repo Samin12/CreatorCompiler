@@ -70,6 +70,7 @@ Generated from `app/package-lock.json` and the installed package license files b
 | [mime-types](https://www.npmjs.com/package/mime-types/v/3.0.2) | 3.0.2 | MIT | [LICENSE](licenses/npm/mime-types@3.0.2/LICENSE) |
 | [ms](https://www.npmjs.com/package/ms/v/2.1.3) | 2.1.3 | MIT | [license.md](licenses/npm/ms@2.1.3/license.md) |
 | [multer](https://www.npmjs.com/package/multer/v/2.4.0) | 2.4.0 | MIT | [LICENSE](licenses/npm/multer@2.4.0/LICENSE) |
+| [mutative](https://www.npmjs.com/package/mutative/v/2.0.0) | 2.0.0 | MIT | [LICENSE](licenses/npm/mutative@2.0.0/LICENSE) |
 | [negotiator](https://www.npmjs.com/package/negotiator/v/1.1.0) | 1.1.0 | MIT | [LICENSE](licenses/npm/negotiator@1.1.0/LICENSE) |
 | [object-assign](https://www.npmjs.com/package/object-assign/v/4.1.1) | 4.1.1 | MIT | [license](licenses/npm/object-assign@4.1.1/license) |
 | [object-inspect](https://www.npmjs.com/package/object-inspect/v/1.13.4) | 1.13.4 | MIT | [LICENSE](licenses/npm/object-inspect@1.13.4/LICENSE) |
