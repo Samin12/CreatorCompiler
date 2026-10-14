@@ -27,8 +27,13 @@ void media.getCapabilities();
 await storage.initStorage();
 const exportsStore=new ExportStore(path.join(storage.DATA_DIR,'export-history'),storage.OUTPUT_DIR,{start:media.startExport,cancel:media.cancelJob});
 await exportsStore.init();
-// Observers receive the committed in-memory project after the response instead of re-reading the file.
+// Observers receive the committed in-memory project after the response instead of re-reading the file. Reading a revision
+// they already saw tells them nothing new, so reads skip observing until a job event or settings change could alter the outcome.
+const observed=new Map<string,string>();
+const sawRevision=(id:string,revision?:string)=>{observed.delete(id);if(revision){observed.set(id,revision);if(observed.size>32)observed.delete(observed.keys().next().value!);}};
+storage.projectEvents.on('project',(event:storage.ProjectEvent)=>sawRevision(event.id,event.action==='saved'?event.revision:undefined));
 storage.projectEvents.on('committed',(p:Project)=>setImmediate(()=>{try{automation.observe(p);}catch{}}));
+automation.events.on('job',(job:{projectId:string})=>observed.delete(job.projectId));
 void recordings.cleanupRecordings();
 const app=express();
 app.disable('x-powered-by');
@@ -63,7 +68,7 @@ app.get('/api/projects',route(async(_,res)=>res.json(await storage.listProjects(
 app.get('/api/trash',route(async(_,res)=>res.json({items:await storage.listTrash()})));
 app.post('/api/trash/:id/restore',route(async(req,res)=>res.json(await storage.restoreTrash(param(req),reviewedRevision(req),{asCopy:req.body.asCopy===true}))));
 app.post('/api/projects',route(async(req,res)=>res.json(await storage.newProject(req.body.name))));
-app.get('/api/projects/:id',route(async(req,res)=>{const state=await storage.projectState(param(req));res.setHeader('ETag','"'+state.revision+'"');res.type('json').send(state.json);setImmediate(()=>{try{automation.observe(state.project??JSON.parse(state.json));}catch{}});}));
+app.get('/api/projects/:id',route(async(req,res)=>{const id=param(req),state=await storage.projectState(id);res.setHeader('ETag','"'+state.revision+'"');res.type('json').send(state.json);if(observed.get(id)!==state.revision){sawRevision(id,state.revision);setImmediate(()=>{try{automation.observe(state.project??JSON.parse(state.json));}catch{}});}}));
 const inspectedImages=new Map<string,string>();
 app.post('/api/projects/:id/inspect',route(async(req,res)=>{
  const frames=await media.inspectFrames(await storage.readProject(param(req)),req.body.times,storage.CACHE_DIR,{width:req.body.width});
@@ -99,8 +104,10 @@ app.get('/api/media/:id/face-track',route(async(req,res)=>{
  return res.json(await getFaceTrack(await storage.readMedia(param(req)),{start,end,signal:controller.signal}));
 }));
 const requestSignal=(req:Request,res:Response)=>{const controller=new AbortController();req.once('aborted',()=>controller.abort());res.once('close',()=>{if(!res.writableEnded)controller.abort();});return controller.signal;};
-app.get('/api/media/:id/vision',route(async(req,res)=>{const result=await visionPreview(await storage.readMedia(param(req)),Number(req.query.time)||0,storage.CACHE_DIR,requestSignal(req,res));return res.json({time:result.time,width:result.width,height:result.height,face:result.face,maskUrl:`/api/media/${encodeURIComponent(param(req))}/vision-mask.png?time=${result.time}`});}));
-app.get('/api/media/:id/vision-mask.png',route(async(req,res)=>{const result=await visionPreview(await storage.readMedia(param(req)),Number(req.query.time)||0,storage.CACHE_DIR,requestSignal(req,res));return res.sendFile(result.maskPath);}));
+// Scrubbing abandons previews constantly; once the client has gone there is no one to answer and the cancellation is not an error.
+const cancellable=(fn:(req:Request,res:Response,signal:AbortSignal)=>Promise<unknown>)=>(req:Request,res:Response,next:NextFunction)=>{const signal=requestSignal(req,res);fn(req,res,signal).catch(error=>{if(!signal.aborted)next(error);});};
+app.get('/api/media/:id/vision',cancellable(async(req,res,signal)=>{const result=await visionPreview(await storage.readMedia(param(req)),Number(req.query.time)||0,storage.CACHE_DIR,signal);return res.json({time:result.time,width:result.width,height:result.height,face:result.face,maskUrl:`/api/media/${encodeURIComponent(param(req))}/vision-mask.png?time=${result.time}`});}));
+app.get('/api/media/:id/vision-mask.png',cancellable(async(req,res,signal)=>{const result=await visionPreview(await storage.readMedia(param(req)),Number(req.query.time)||0,storage.CACHE_DIR,signal);return res.sendFile(result.maskPath);}));
 app.post('/api/media/:id/proxy',route(async(req,res)=>res.json(media.startProxy(await storage.readMedia(param(req)),storage.CACHE_DIR))));
 app.get('/api/media/:id/proxy',route(async(req,res)=>{const m=await storage.readMedia(param(req));return res.sendFile(await media.proxyFile(m,storage.CACHE_DIR)||m.path);}));
 app.post('/api/import/borumi',route(async(req,res)=>{const p=await importBorumi(req.body.path,{roundtripDirectory:path.join(storage.DATA_DIR,'borumi-snapshots')});for(const m of p.media)await storage.registerMedia(m);return res.json(await storage.saveProject(p));}));
@@ -154,7 +161,7 @@ app.post('/api/ai/transcribe',route(async(req,res)=>{const p=await storage.readP
 app.post('/api/ai/analyze',route(async(req,res)=>{if(!['silence','fillers','script'].includes(req.body.kind))throw new Error('Unknown analysis kind');return res.json(await ai.analyze(await storage.readProject(req.body.projectId),req.body.kind,await storage.readAISettings(),req.body.prompt));}));
 const dist=path.resolve(import.meta.dirname,'../dist');
 app.get('/api/automation/settings',route(async(_,res)=>res.json(await automation.getSettings())));
-app.put('/api/automation/settings',route(async(req,res)=>res.json(await automation.updateSettings(req.body))));
+app.put('/api/automation/settings',route(async(req,res)=>{const settings=await automation.updateSettings(req.body);observed.clear();return res.json(settings);}));
 app.get('/api/projects/:id/automation',route(async(req,res)=>{await storage.projectExists(param(req));return res.json({jobs:await automation.list(param(req))});}));
 app.post('/api/projects/:id/transcribe',route(async(req,res)=>res.json(await automation.queueTranscription(param(req),{force:req.body.force===true}))));
 app.post('/api/projects/:id/quick-action',route(async(req,res)=>res.json(await automation.quickAction(param(req),req.body))));
