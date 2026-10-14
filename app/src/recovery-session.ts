@@ -32,10 +32,10 @@ export function singleReplacementPath(paths:string[]):string|null{
  if(paths.length!==1)throw Error('Choose exactly one replacement file. No files were changed.');
  const path=paths[0].trim();if(!path)throw Error('Choose a replacement file.');return path;
 }
-/** A slow SSE fetch must not replace a newer clean snapshot or flag its own echo. */
-export function projectRefreshDisposition(before:Project,current:Project|null,incoming:Project,savedJSON:string):'ignore'|'conflict'|'adopt'{
+/** A slow SSE fetch must not replace a newer clean snapshot or flag its own echo. `saved` is the saved object (compared by identity) or its JSON. */
+export function projectRefreshDisposition(before:Project,current:Project|null,incoming:Project,saved:Project|null|string):'ignore'|'conflict'|'adopt'{
  if(!current||current.id!==incoming.id)return 'ignore';
- const clean=JSON.stringify(current)===savedJSON;
+ const clean=typeof saved==='string'?JSON.stringify(current)===saved:current===saved;
  if(current!==before&&clean)return 'ignore';
  return clean?'adopt':'conflict';
 }
