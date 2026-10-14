@@ -40,12 +40,17 @@ final class NativeRecording: NSObject, SCStreamOutput, SCStreamDelegate, @unchec
     var videoDrainScheduled = false, peakBufferedVideo = 0, lateVideoFrames = 0
     var videoFailure: String?
     var maxBufferedVideo = 16, maxPoolVideo = 24
-    var selfTestFrameMarkers = false
+    var selfTestFrameMarkers = false, selfTestStats = false
     var lastEncodedVideo = CMTime.invalid
     let previewQueue = DispatchQueue(label: "sceneforge.native.preview", qos: .utility)
-    let ci = CIContext(options: [.cacheIntermediates: false])
+    // Built on first preview, on previewQueue only: it is not on the start path.
+    lazy var ci = CIContext(options: [.cacheIntermediates: false])
     var stream: SCStream?
     var timer: DispatchSourceTimer?
+    // Sampling ticks are kept away from the measured arrival phase of complete
+    // frames, so a tick never races the frame for its own slot.
+    var arrivalX = 0.0, arrivalY = 0.0, arrivalSamples = 0, ticksSinceLock = 0, timerRelocks = 0
+    var previewEnabled = true
     var captureBounds = CGRect.zero, capturedWindowID: CGWindowID?, capturedWindowPID: pid_t?
     var lastBoundsPoll = -Double.infinity
     var writer: AVAssetWriter?, videoInput: AVAssetWriterInput?, adaptor: AVAssetWriterInputPixelBufferAdaptor?
@@ -190,10 +195,13 @@ final class NativeRecording: NSObject, SCStreamOutput, SCStreamDelegate, @unchec
                 let originEpochMs = Date().timeIntervalSince1970*1000
                 if let writer, !writer.startWriting() { emit(["type":"error","message":writer.error?.localizedDescription ?? "Video encoder could not start."]); return }; writer?.startSession(atSourceTime: .zero)
                 started = true
-                emit(["type":"started","startedAtMs":originEpochMs,"width":width,"height":height,"excludesSceneForge":true,"captureBounds":captureBoundsJSON(captureBounds)])
+                emit(["type":"started","startedAtMs":originEpochMs,"width":width,"height":height,"excludesSceneForge":true,"captureBounds":captureBoundsJSON(captureBounds),"previewControl":true])
                 tick()
-                let t = DispatchSource.makeTimerSource(queue: queue); t.schedule(deadline: .now(), repeating: 1/Double(fps)); t.setEventHandler { [weak self] in self?.tick() }; timer = t; t.resume()
-            }
+                // Frames arrive phase-locked to this first one; sample mid-interval
+                // of the origin grid (encoder start above may have taken a while).
+                let position = seconds(elapsed())*Double(fps); var delay = 0.5-(position-floor(position)); if delay <= 0 { delay += 1 }
+                let t = DispatchSource.makeTimerSource(queue: queue); t.schedule(deadline: .now()+delay/Double(fps), repeating: 1/Double(fps), leeway: .milliseconds(1)); t.setEventHandler { [weak self] in self?.tick() }; timer = t; t.resume()
+            } else { noteArrival() }
         } else if type == .audio {
             guard origin != nil, pauseAt == nil, audioFile != nil else { return }
             let original = CMSampleBufferGetPresentationTimeStamp(sample)
@@ -270,7 +278,8 @@ final class NativeRecording: NSObject, SCStreamOutput, SCStreamDelegate, @unchec
             }
             enqueueVideo(image,at:pts); lastVideo=pts
         }
-        if seconds(time)-lastPreview >= 0.2 && !previewBusy {
+        relockTimer()
+        if previewEnabled && seconds(time)-lastPreview >= 0.2 && !previewBusy {
             previewBusy = true; lastPreview = seconds(time); previewCounter += 1
             let index = previewCounter, file = previewPath
             previewQueue.async { [weak self] in
@@ -284,8 +293,31 @@ final class NativeRecording: NSObject, SCStreamOutput, SCStreamDelegate, @unchec
             }
         }
     }
+    // Arrival phase is measured against the origin on the host clock, also
+    // while paused, and mapped onto the elapsed slot grid that tick() samples
+    // on. Ticks sit mid-way in the wider gap between the slot boundary and that
+    // phase, so they neither race the frame for their slot nor cross a boundary
+    // on timer jitter. Irregular sources (static or variable-rate content)
+    // never reach the concentration needed to move the timer.
+    func noteArrival() {
+        guard let origin else { return }
+        let position = seconds(CMTimeSubtract(hostTime(), origin))*Double(fps), angle = (position-floor(position))*2*Double.pi
+        arrivalX = arrivalX*0.8+cos(angle)*0.2; arrivalY = arrivalY*0.8+sin(angle)*0.2; arrivalSamples += 1
+    }
+    func relockTimer() {
+        ticksSinceLock += 1
+        guard let timer, arrivalSamples >= 8, ticksSinceLock >= Int(fps)/2, arrivalX*arrivalX+arrivalY*arrivalY > 0.25 else { return }
+        let position = seconds(elapsed())*Double(fps), phase = position-floor(position)
+        var arrival = atan2(arrivalY, arrivalX)/(2*Double.pi)-seconds(pauseOffset)*Double(fps); arrival -= floor(arrival)
+        let target = arrival < 0.5 ? (arrival+1)/2 : arrival/2, distance = abs(phase-target)
+        guard min(distance, 1-distance) > 0.1 else { return }
+        // The next tick lands within one frame, so no slot is skipped.
+        var delay = target-phase; delay -= floor(delay); if delay == 0 { delay = 1 }
+        timer.schedule(deadline: .now()+delay/Double(fps), repeating: 1/Double(fps), leeway: .milliseconds(1)); ticksSinceLock = 0; timerRelocks += 1
+    }
+    func setPreview(_ enabled: Bool) { queue.async { self.previewEnabled = enabled; if enabled { self.lastPreview = -Double.infinity } } }
     func pause() { queue.async { guard self.started, self.pauseAt == nil, !self.stopping else { return }; self.tick(); self.pauseAt = hostTime(); emit(["type":"paused","duration":seconds(self.elapsed()),"transitionAtMs":Date().timeIntervalSince1970*1000]) } }
-    func resume() { queue.async { guard let paused = self.pauseAt, !self.stopping else { return }; let now = hostTime(); self.pauseOffset = CMTimeAdd(self.pauseOffset, CMTimeSubtract(now, paused)); self.resumedAt = now; self.pauseAt = nil; emit(["type":"resumed","duration":seconds(self.elapsed()),"transitionAtMs":Date().timeIntervalSince1970*1000]) } }
+    func resume() { queue.async { guard let paused = self.pauseAt, !self.stopping else { return }; let now = hostTime(); self.pauseOffset = CMTimeAdd(self.pauseOffset, CMTimeSubtract(now, paused)); self.resumedAt = now; self.pauseAt = nil; self.ticksSinceLock = Int(self.fps); emit(["type":"resumed","duration":seconds(self.elapsed()),"transitionAtMs":Date().timeIntervalSince1970*1000]) } }
     func stop() async {
         let duration: Double = await withCheckedContinuation { continuation in queue.async {
             if self.stopping { continuation.resume(returning: -1); return }
@@ -323,6 +355,7 @@ final class NativeRecording: NSObject, SCStreamOutput, SCStreamDelegate, @unchec
         if captureAudio && audioBuffers == 0 { result["warning"] = "No system-audio samples were received; no system audio file was imported." }
         if droppedVideo+lateVideoFrames > 0 { result["warning"] = [result["warning"] as? String,"Recording was under load: \(droppedVideo) video frames exceeded the buffer and \(lateVideoFrames) frame intervals were delayed. Review the take before using it."].compactMap{$0}.joined(separator:" ") }
         if let error = writer?.error { result["error"] = error.localizedDescription };if let videoFailure {result["error"]=videoFailure};if let audioFailure {result["error"]=audioFailure}
+        if selfTestStats { result["timerRelocks"] = timerRelocks }
         emit(result)
         exit(result["error"] == nil ? 0 : 1)
     }
@@ -337,7 +370,12 @@ if let at = CommandLine.arguments.firstIndex(of: "--self-test"), CommandLine.arg
     do {
         try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
         recorder.width=CommandLine.arguments.contains("--self-test-hd") ? 1920 : 320
-        recorder.height=CommandLine.arguments.contains("--self-test-hd") ? 1080 : 180; recorder.captureAudio=true; recorder.selfTestFrameMarkers=true
+        recorder.height=CommandLine.arguments.contains("--self-test-hd") ? 1080 : 180; recorder.captureAudio=true; recorder.selfTestStats=true
+        // A moving source delivers numbered frames on its own clock, as
+        // ScreenCaptureKit does, to measure sampling cadence (duplicates/skips).
+        var sourceFPS=0.0
+        if let index=CommandLine.arguments.firstIndex(of:"--self-test-source-fps"),CommandLine.arguments.count>index+1 {sourceFPS=min(120,max(0,Double(CommandLine.arguments[index+1]) ?? 0))}
+        recorder.selfTestFrameMarkers=sourceFPS==0
         var stallMilliseconds=0
         if let index=CommandLine.arguments.firstIndex(of:"--self-test-stall-ms"),CommandLine.arguments.count>index+1 {stallMilliseconds=min(2000,max(0,Int(CommandLine.arguments[index+1]) ?? 0))}
         recorder.videoPath=dir+"/screen.mp4"; recorder.audioPath=dir+"/system.wav"; recorder.previewPath=dir+"/preview.jpg"
@@ -350,7 +388,19 @@ if let at = CommandLine.arguments.firstIndex(of: "--self-test"), CommandLine.arg
         var vf:CMVideoFormatDescription?;CMVideoFormatDescriptionCreateForImageBuffer(allocator:kCFAllocatorDefault,imageBuffer:pixel!,formatDescriptionOut:&vf)
         var vt=CMSampleTimingInfo(duration:CMTime(value:1,timescale:30),presentationTimeStamp:hostTime(),decodeTimeStamp:.invalid),vs:CMSampleBuffer?
         CMSampleBufferCreateReadyWithImageBuffer(allocator:kCFAllocatorDefault,imageBuffer:pixel!,formatDescription:vf!,sampleTiming:&vt,sampleBufferOut:&vs)
-        recorder.queue.async {recorder.accept(vs!,type:.screen)}
+        let sourceTimer=sourceFPS>0 ? DispatchSource.makeTimerSource(queue:DispatchQueue(label:"sceneforge.native.self-test-source",qos:.userInitiated)) : nil
+        if let sourceTimer {
+            var pool:CVPixelBufferPool?,sourceIndex=0
+            CVPixelBufferPoolCreate(kCFAllocatorDefault,[kCVPixelBufferPoolMinimumBufferCountKey:3] as CFDictionary,[kCVPixelBufferPixelFormatTypeKey as String:kCVPixelFormatType_32BGRA,kCVPixelBufferWidthKey as String:recorder.width,kCVPixelBufferHeightKey as String:recorder.height,kCVPixelBufferIOSurfacePropertiesKey as String:[:]] as CFDictionary,&pool)
+            sourceTimer.schedule(deadline:.now(),repeating:1/sourceFPS,leeway:.nanoseconds(0))
+            sourceTimer.setEventHandler {
+                var frame:CVPixelBuffer?;guard CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault,pool!,&frame)==kCVReturnSuccess,let frame else {return}
+                CVPixelBufferLockBaseAddress(frame,[]);memset(CVPixelBufferGetBaseAddress(frame),Int32(32+sourceIndex%16*12),CVPixelBufferGetDataSize(frame));CVPixelBufferUnlockBaseAddress(frame,[]);sourceIndex+=1
+                var timing=CMSampleTimingInfo(duration:CMTime(value:1,timescale:30),presentationTimeStamp:hostTime(),decodeTimeStamp:.invalid),sample:CMSampleBuffer?
+                CMSampleBufferCreateReadyWithImageBuffer(allocator:kCFAllocatorDefault,imageBuffer:frame,formatDescription:vf!,sampleTiming:&timing,sampleBufferOut:&sample)
+                if let sample {recorder.queue.async {recorder.accept(sample,type:.screen)}}
+            };sourceTimer.resume()
+        } else { recorder.queue.async {recorder.accept(vs!,type:.screen)} }
         let audioTimer=DispatchSource.makeTimerSource(queue:recorder.queue);var sampleIndex:Int64=0
         var asbd=AudioStreamBasicDescription(mSampleRate:48000,mFormatID:kAudioFormatLinearPCM,mFormatFlags:kAudioFormatFlagIsFloat|kAudioFormatFlagIsPacked,mBytesPerPacket:8,mFramesPerPacket:1,mBytesPerFrame:8,mChannelsPerFrame:2,mBitsPerChannel:32,mReserved:0)
         var af:CMAudioFormatDescription?;CMAudioFormatDescriptionCreate(allocator:kCFAllocatorDefault,asbd:&asbd,layoutSize:0,layout:nil,magicCookieSize:0,magicCookie:nil,extensions:nil,formatDescriptionOut:&af)
@@ -363,12 +413,24 @@ if let at = CommandLine.arguments.firstIndex(of: "--self-test"), CommandLine.arg
             CMSampleBufferCreateReady(allocator:kCFAllocatorDefault,dataBuffer:block,formatDescription:af,sampleCount:480,sampleTimingEntryCount:1,sampleTimingArray:&timing,sampleSizeEntryCount:1,sampleSizeArray:&size,sampleBufferOut:&sample)
             if let sample {recorder.accept(sample,type:.audio)}
         };audioTimer.resume()
-        DispatchQueue.main.asyncAfter(deadline:.now()+0.8){recorder.pause()}
-        DispatchQueue.main.asyncAfter(deadline:.now()+1.4){recorder.resume()}
-        DispatchQueue.main.asyncAfter(deadline:.now()+2.2){audioTimer.cancel();Task{await recorder.stop()}}
+        let span=sourceFPS>0 ? 3.0 : 1.0
+        DispatchQueue.main.asyncAfter(deadline:.now()+0.8*span){recorder.pause()}
+        DispatchQueue.main.asyncAfter(deadline:.now()+1.4*span){recorder.resume()}
+        DispatchQueue.main.asyncAfter(deadline:.now()+2.2*span){audioTimer.cancel();sourceTimer?.cancel();Task{await recorder.stop()}}
         RunLoop.main.run()
     } catch {emit(["type":"error","message":error.localizedDescription]);exit(1)}
     exit(0)
+}
+// Pay AVFoundation's first-writer setup while the helper waits for its start
+// command or for ScreenCaptureKit. This throwaway writer is never started.
+DispatchQueue.global(qos: .userInitiated).async {
+    let url = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("sceneforge-warmup-\(getpid())-\(UUID().uuidString).mp4")
+    if let writer = try? AVAssetWriter(outputURL: url, fileType: .mp4) {
+        let input = AVAssetWriterInput(mediaType: .video, outputSettings: [AVVideoCodecKey: AVVideoCodecType.h264, AVVideoWidthKey: 1920, AVVideoHeightKey: 1080, AVVideoCompressionPropertiesKey: [AVVideoAverageBitRateKey: 7_776_000, AVVideoMaxKeyFrameIntervalKey: 60, AVVideoAllowFrameReorderingKey: false]])
+        input.expectsMediaDataInRealTime = true
+        if writer.canAdd(input) { writer.add(input); _ = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: input, sourcePixelBufferAttributes: [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA, kCVPixelBufferWidthKey as String: 1920, kCVPixelBufferHeightKey as String: 1080]) }
+    }
+    try? FileManager.default.removeItem(at: url)
 }
 DispatchQueue.global(qos: .userInitiated).async {
     while let line = readLine() {
@@ -378,6 +440,7 @@ DispatchQueue.global(qos: .userInitiated).async {
             case "start": Task { do { try await recorder.start(message) } catch { emit(["type":"error","message":error.localizedDescription]); exit(1) } }
             case "pause": recorder.pause()
             case "resume": recorder.resume()
+            case "preview": guard let enabled = message["enabled"] as? Bool else { throw failure("Invalid preview command.") }; recorder.setPreview(enabled)
             case "stop": Task { await recorder.stop() }
             default: throw failure("Unknown capture command.")
             }
