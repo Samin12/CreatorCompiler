@@ -42,3 +42,9 @@
 .timeline-scene button:focus-visible{outline:2px solid #3b82f6;outline-offset:-1px}
 
 .timeline-waveform-toggle{display:flex;align-items:center;gap:5px;border:1px solid var(--line);border-radius:5px;font-size:11px;padding:3px 6px;color:var(--muted);white-space:nowrap}.timeline-waveform-toggle[aria-pressed=true]{background:var(--input);color:var(--foreground)}.timeline-waveform-toggle:focus-visible{outline:2px solid #3b82f6;outline-offset:1px}.timeline .clip-waveform{opacity:.65}
+
+/* Clip thumbnails and names stick to the visible left edge without per-scroll renders; overflow:clip keeps the timeline as their scroll container. Offsets follow the clip padding (4px), thumbnail (54px) and gap (3px). */
+.timeline .timeline-clip{overflow:clip}
+.timeline .timeline-clip>.clip-thumb,.timeline .timeline-clip>span{position:sticky;left:4px}
+.timeline .timeline-clip>.clip-thumb+span{left:61px}
+.timeline .playhead,.timeline .blade-guide{left:0;will-change:transform}
