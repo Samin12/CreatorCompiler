@@ -27,7 +27,8 @@ void media.getCapabilities();
 await storage.initStorage();
 const exportsStore=new ExportStore(path.join(storage.DATA_DIR,'export-history'),storage.OUTPUT_DIR,{start:media.startExport,cancel:media.cancelJob});
 await exportsStore.init();
-storage.projectEvents.on('project',event=>{if(event.action==='saved')void storage.readProject(event.id).then(automation.observe).catch(()=>{});});
+// Observers receive the committed in-memory project after the response instead of re-reading the file.
+storage.projectEvents.on('committed',(p:Project)=>setImmediate(()=>{try{automation.observe(p);}catch{}}));
 void recordings.cleanupCompletedRecordings();
 const app=express();
 app.disable('x-powered-by');
@@ -62,14 +63,21 @@ app.get('/api/projects',route(async(_,res)=>res.json(await storage.listProjects(
 app.get('/api/trash',route(async(_,res)=>res.json({items:await storage.listTrash()})));
 app.post('/api/trash/:id/restore',route(async(req,res)=>res.json(await storage.restoreTrash(param(req),reviewedRevision(req),{asCopy:req.body.asCopy===true}))));
 app.post('/api/projects',route(async(req,res)=>res.json(await storage.newProject(req.body.name))));
-app.get('/api/projects/:id',route(async(req,res)=>{const p=await storage.readProject(param(req));automation.observe(p);res.setHeader('ETag','"'+storage.revision(p)+'"');return res.json(p);}));
+app.get('/api/projects/:id',route(async(req,res)=>{const state=await storage.projectState(param(req));res.setHeader('ETag','"'+state.revision+'"');res.type('json').send(state.json);setImmediate(()=>{try{automation.observe(state.project??JSON.parse(state.json));}catch{}});}));
 const inspectedImages=new Map<string,string>();
 app.post('/api/projects/:id/inspect',route(async(req,res)=>{
  const frames=await media.inspectFrames(await storage.readProject(param(req)),req.body.times,storage.CACHE_DIR,{width:req.body.width});
  return res.json({frames:frames.map(frame=>{const token=createHash('sha256').update(frame.path).digest('hex');inspectedImages.set(token,frame.path);return {time:frame.time,requestedTime:frame.requestedTime,width:frame.width,height:frame.height,url:`/api/inspection-images/${token}`};})});
 }));
 app.get('/api/inspection-images/:id',route((req,res)=>{const file=inspectedImages.get(param(req));if(!file)return res.status(404).json({error:'Inspect the timeline again to refresh this frame.'});return res.sendFile(file);}));
-app.put('/api/projects/:id',route(async(req,res)=>{if(req.body.id!==param(req))throw new Error('Project ID mismatch');const p=await storage.saveProject(req.body,{expectedRevision:req.headers['if-match']?.replaceAll('"',''),checkpoint:req.headers['x-sceneforge-checkpoint']==='1'});res.setHeader('ETag','"'+storage.revision(p)+'"');return res.json(p);}));
+const prefersMinimal=(req:Request)=>/(?:^|,)\s*return\s*=\s*"?minimal"?\s*(?:[;,]|$)/i.test(String(req.headers.prefer??''));
+app.put('/api/projects/:id',route(async(req,res)=>{
+ if(req.body.id!==param(req))throw new Error('Project ID mismatch');
+ const saved=await storage.commitProject(req.body,{expectedRevision:req.headers['if-match']?.replaceAll('"',''),checkpoint:req.headers['x-sceneforge-checkpoint']==='1',clone:false});res.setHeader('ETag','"'+saved.revision+'"');
+ // The stored object is the request body itself with only updatedAt assigned, so the client can adopt that one field exactly.
+ if(prefersMinimal(req)&&saved.project===req.body){res.setHeader('Preference-Applied','return=minimal');return res.json({minimal:true,id:saved.project.id,updatedAt:saved.project.updatedAt});}
+ return res.type('json').send(saved.json);
+}));
 app.delete('/api/projects/:id',route(async(req,res)=>{await storage.trashProject(param(req));return res.json({ok:true});}));
 app.post('/api/projects/:id/duplicate',route(async(req,res)=>res.json(await storage.duplicateProject(param(req)))));
 app.get('/api/projects/:id/history',route(async(req,res)=>res.json(await storage.history(param(req)))));
@@ -143,7 +151,7 @@ app.post('/api/ai/analyze',route(async(req,res)=>{if(!['silence','fillers','scri
 const dist=path.resolve(import.meta.dirname,'../dist');
 app.get('/api/automation/settings',route(async(_,res)=>res.json(await automation.getSettings())));
 app.put('/api/automation/settings',route(async(req,res)=>res.json(await automation.updateSettings(req.body))));
-app.get('/api/projects/:id/automation',route(async(req,res)=>{await storage.readProject(param(req));return res.json({jobs:await automation.list(param(req))});}));
+app.get('/api/projects/:id/automation',route(async(req,res)=>{await storage.projectExists(param(req));return res.json({jobs:await automation.list(param(req))});}));
 app.post('/api/projects/:id/transcribe',route(async(req,res)=>res.json(await automation.queueTranscription(param(req),{force:req.body.force===true}))));
 app.post('/api/projects/:id/quick-action',route(async(req,res)=>res.json(await automation.quickAction(param(req),req.body))));
 app.get('/api/automation/:id',route(async(req,res)=>res.json(await automation.get(param(req)))));
