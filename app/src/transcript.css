@@ -36,7 +36,7 @@
   touch-action: pan-y;
   user-select: none;
 }
-.transcript-editor .transcript-sentence { padding: 10px 0; border-bottom: 1px solid var(--line); }
+.transcript-editor .transcript-sentence { padding: 10px 0; border-bottom: 1px solid var(--line); content-visibility: auto; contain-intrinsic-size: auto 90px; }
 .transcript-editor .transcript-stamp { font-size: 10px; color: var(--transcript-muted); font-variant-numeric: tabular-nums; }
 .transcript-editor .transcript-sentence p { font-size: 14px; line-height: 1.9; margin: 3px 0; color: inherit; overflow-wrap: anywhere; }
 .transcript-editor .transcript-word { cursor: text; border-radius: 3px; padding: 2px 0; color: inherit; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
