@@ -79,3 +79,14 @@ test('deferred text commits before saves and history steps',async()=>{
  text='More typing';await act(async()=>{app.studio.undo();});assert.equal(app.studio.project!.notes,'Typed but not committed','undo reverts the text that was still pending');
  stop();await app.unmount();
 });
+
+test('our own save echo leaves text being typed alone; other changes commit it first',async()=>{
+ const app=await mount(project()),source=FakeSource.last!,{registerPendingEdit}=await import('./useStudio');
+ await act(async()=>{app.studio.change(p=>{p.notes='Saved';});});await wait(800);assert.equal(app.server.puts().length,1);
+ let commits=0,text:string|null='Typed';const stop=registerPendingEdit(()=>{commits++;if(text===null)return;const value=text;text=null;app.studio.change(p=>{p.name=value;});});
+ const send=(revision:string)=>act(async()=>{source.dispatchEvent(new MessageEvent('project',{data:JSON.stringify({id:app.studio.project!.id,revision,action:'saved'})}));});
+ await send('"rev-2"');await wait(50);assert.equal(commits,0,'the echo of our save does not commit pending text');assert.equal(app.studio.saveState,'Saved locally');
+ await send(app.server.external(p=>{p.notes='Changed by the assistant';}));await wait(50);
+ assert.ok(commits>0);assert.equal(app.studio.project!.name,'Typed');assert.equal(app.studio.conflicted,true,'pending text counts as an unsaved edit');
+ stop();await app.unmount();
+});

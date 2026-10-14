@@ -33,8 +33,10 @@ export function useStudio(){
   const receive=(event:MessageEvent)=>{let update:{id:string;revision?:string;action?:string};try{update=JSON.parse(event.data);}catch{return;}
    queue=queue.catch(()=>{}).then(async()=>{
     let pending=saveQueue.current;await pending.catch(()=>{});while(pending!==saveQueue.current){pending=saveQueue.current;await pending.catch(()=>{});}if(disposed)return;
-    commitPendingEdits();const before=current.current;if(!before||before.id!==update.id){refreshList();return;}
+    if(current.current?.id!==update.id){refreshList();return;}
     const acknowledged=await revision.current;if(disposed)return;if(update.action!=='trashed'&&update.revision&&cleanRevision(update.revision)===cleanRevision(acknowledged))return;
+    // Our own save's echo leaves text being typed alone; any other change is judged with that text included.
+    commitPendingEdits();const before=current.current;if(!before||before.id!==update.id){refreshList();return;}
     const dirty=before!==saved.current;
     if(dirty||conflict.current){conflict.current=true;setConflicted(true);setSaveState('Autosave paused');setError(update.action==='trashed'?'This project was moved to trash externally. Your unsaved edits are still open.':'An assistant or another window changed this project. Your unsaved edits are preserved; reload the server version to continue.');return;}
     if(update.action==='trashed'){current.current=null;setProject(null);saved.current=null;sent.current=null;history.reset();setHistoryTick(x=>x+1);refreshList();return;}
