@@ -26,6 +26,7 @@ await storage.initStorage();
 const exportsStore=new ExportStore(path.join(storage.DATA_DIR,'export-history'),storage.OUTPUT_DIR,{start:media.startExport,cancel:media.cancelJob});
 await exportsStore.init();
 storage.projectEvents.on('project',event=>{if(event.action==='saved')void storage.readProject(event.id).then(automation.observe).catch(()=>{});});
+void recordings.cleanupCompletedRecordings();
 const app=express();
 app.disable('x-powered-by');
 app.use((req,res,next)=>{
