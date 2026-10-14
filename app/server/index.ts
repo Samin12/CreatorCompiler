@@ -141,9 +141,12 @@ app.get('/api/jobs/:id',route(async(req,res)=>{try{return res.json(await exports
 app.delete('/api/jobs/:id',route(async(req,res)=>{try{return res.json(await exportsStore.cancel(param(req)));}catch(e){if((e as {status?:number}).status!==404)throw e;}const j=media.cancelJob(param(req));return res.status(j?200:404).json(j||{error:'Job not found'});}));
 app.get('/api/jobs/:id/download',downloadExport);
 app.get('/api/ai/settings',route(async(_,res)=>res.json(storage.redactSettings(await storage.readAISettings()))));
+// Follow mode posts a batch every few seconds while recording; the joined script is reparsed only when the committed revision changes.
+const followScripts=new Map<string,{revision:string;script:string}>();
 app.post('/api/ai/voice-follow',express.raw({type:'audio/wav',limit:'350kb'}),route(async(req,res)=>{
- const project=await storage.readProject(String(req.query.projectId));
- return res.json(await followSpeech(req.body,project.scenes.map(s=>s.script).join('\n\n'),Number(req.query.cursor)||0,await storage.readAISettings(),storage.CACHE_DIR));
+ const id=String(req.query.projectId),state=await storage.projectState(id);let cached=followScripts.get(id);
+ if(cached?.revision!==state.revision){cached={revision:state.revision,script:(state.project??JSON.parse(state.json) as Project).scenes.map(s=>s.script).join('\n\n')};followScripts.delete(id);followScripts.set(id,cached);if(followScripts.size>8)followScripts.delete(followScripts.keys().next().value!);}
+ return res.json(await followSpeech(req.body,cached.script,Number(req.query.cursor)||0,await storage.readAISettings(),storage.CACHE_DIR));
 }));
 app.put('/api/ai/settings',route(async(req,res)=>res.json(await storage.saveAISettings(req.body))));
 app.post('/api/ai/transcribe',route(async(req,res)=>{const p=await storage.readProject(req.body.projectId);const m=p.media.find(m=>m.id===req.body.mediaId);if(!m)throw new Error('Media is not in this project');return res.json(await ai.transcribe(m,await storage.readAISettings(),storage.CACHE_DIR));}));
