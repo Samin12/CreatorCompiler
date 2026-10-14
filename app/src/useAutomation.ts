@@ -14,8 +14,8 @@ export function useProjectAutomation(projectId?:string,revision?:string){
   return()=>{stopped=true;live.current=false;request.abort();clearTimeout(timer);};
  },[projectId,reload]);
  useEffect(()=>{if(!projectId)return;const receive=(event:MessageEvent)=>{try{const job=JSON.parse(event.data) as AutomationJob;if(job.projectId===projectId)merge(job);}catch{}};const stopJobs=subscribeEvents('automation',receive),stopReady=subscribeEvents('ready',()=>void reload().catch(()=>{}));return()=>{stopJobs();stopReady();};},[projectId,merge,reload]);
- // Saves can queue automatic jobs about 800 ms later without an event until they run; refetch once edits settle.
- useEffect(()=>{if(projectId){const controller=new AbortController();const timer=setTimeout(()=>void reload(controller.signal).catch(()=>{}),1200);return()=>{clearTimeout(timer);controller.abort();};}},[projectId,revision,reload]);
+ // Saves can queue automatic jobs about 800 ms later without an event until they run; refetch once edits settle, and again while a running job keeps them queued.
+ useEffect(()=>{if(projectId){const controller=new AbortController(),refetch=()=>void reload(controller.signal).catch(()=>{});const timer=setTimeout(refetch,1200),late=setTimeout(()=>{if(currentJobs.current.some(automationRunning))refetch();},2500);return()=>{clearTimeout(timer);clearTimeout(late);controller.abort();};}},[projectId,revision,reload]);
  const visible=useMemo(()=>jobs.filter(job=>job.projectId===projectId),[jobs,projectId]);
  return {jobs:visible,error,merge,reload};
 }
