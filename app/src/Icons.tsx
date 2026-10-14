@@ -2,7 +2,7 @@ import type {ComponentType,SVGProps} from 'react';
 import {List as IList} from 'iconoir-react';
 import {ArrowLeft as IArrowLeft,ArrowRight as IArrowRight,SoundHigh as IAudioLines,Camera as ICamera,Check as ICheck,NavArrowDown as IChevronDown,NavArrowLeft as IChevronLeft,NavArrowRight as IChevronRight,Clock as IClock3,MediaVideoList as IClapperboard,Copy as ICopy,Download as IDownload,Page as IFileText,MediaVideo as IFilm,Folder as IFolderOpen,ViewGrid as IGrid2X2,ClockRotateRight as IHistory,HomeSimple as IHome,MediaImage as IImage,MultiplePages as ILayers,LayoutRight as ILayoutTemplate,Refresh as ILoaderCircle,Magnet as IMagnet,Expand as IMaximize2,Microphone as IMic,Minus as IMinus,MoreHoriz as IMoreHorizontal,CursorPointer as IMousePointer2,MusicDoubleNote as IMusic,Pause as IPause,Play as IPlay,Plus as IPlus,RedoAction as IRedo2,Cut as IScissors,Search as ISearch,Settings as ISettings2,SkipPrev as ISkipBack,SkipNext as ISkipForward,Sparks as ISparkles,ClosedCaptionsTag as ISubtitles,Bin as ITrash2,Text as IType,UndoAction as IUndo2,Upload as IUpload,VideoCamera as IVideo,MagicWand as IWandSparkles,Xmark as IX,ZoomIn as IZoomIn,Drag as IGripVertical,AlignCenter as IAlignCenter} from 'iconoir-react';
 
-import {Computer as IMonitor,Square as ISquare,CheckCircle as ICheckCircle2,Restart as IRotateCcw,Flip as IFlipHorizontal} from 'iconoir-react';
+import {InfoCircle as IInfo,Computer as IMonitor,Square as ISquare,CheckCircle as ICheckCircle2,Restart as IRotateCcw,Flip as IFlipHorizontal} from 'iconoir-react';
 
 // Iconoir MIT icons. A thin size adapter preserves the shared control interface.
 type Props=SVGProps<SVGSVGElement>&{size?:number|string};
@@ -61,6 +61,7 @@ export const AlignCenter=icon(IAlignCenter);
 export const Monitor=icon(IMonitor);
 export const Square=icon(ISquare);
 export const CheckCircle2=icon(ICheckCircle2);
+export const Info=icon(IInfo);
 export const RotateCcw=icon(IRotateCcw);
 export const FlipHorizontal=icon(IFlipHorizontal);
 

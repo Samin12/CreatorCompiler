@@ -38,3 +38,44 @@
 @media(max-width:760px){.recording-workspace{grid-template-columns:minmax(260px,42%) minmax(0,1fr)}.capture-video{height:160px}}
 /* The hidden editor keeps rendering during a take (background throttling stays off for recording timers); stop its animation frames. */
 :root[data-main-hidden] *,:root[data-main-hidden] *::before,:root[data-main-hidden] *::after{animation-play-state:paused!important}
+.capture-source>.capture-source-picker{margin:0 0 12px}
+.capture-source-error{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 12px;padding:10px 12px;border:1px solid #fecaca;border-radius:7px;background:#fef2f2}
+.capture-source-error p{flex-basis:100%;margin:0;font-size:11px;line-height:1.5;color:#b91c1c}
+[data-theme=dark] .capture-source-error{border-color:#7f1d1d;background:rgba(127,29,29,.25)}
+[data-theme=dark] .capture-source-error p{color:#fca5a5}
+
+/* Record panel: one live stage composed like the final video, then compact source rows. */
+.capture-stage{position:relative;flex-shrink:0;margin:12px 12px 4px;aspect-ratio:16/9;border-radius:10px;overflow:hidden;background:#0b0b0b}
+.capture-stage>.capture-video,.capture-stage-fill>.capture-video{position:absolute;inset:0;height:auto;min-height:0;border-radius:0}
+.capture-stage-fill{position:absolute;inset:0}
+.capture-stage-empty{position:absolute;inset:0;display:grid;place-items:center;margin:0;padding:24px;text-align:center;font-size:13px;line-height:1.5;color:#a3a3a3}
+.capture-stage .capture-preview-empty{color:#a3a3a3}
+.capture-preview-empty.compact{gap:6px;padding:8px}
+.capture-preview-empty.compact>span{font-size:11px;color:#d4d4d4}
+.capture-sources-fieldset{min-width:0;margin:0;padding:0;border:0}
+.recording-source-panel .capture-source{padding:4px 12px 10px}
+.recording-source-panel .capture-source>header{margin-bottom:0}
+.recording-source-panel .capture-source>:not(header){margin-top:8px;margin-bottom:0}
+.recording-source-panel .capture-source:last-child{border-bottom:0}
+.capture-row-note{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px;font-size:12px;line-height:1.5;color:var(--muted)}
+.capture-row-note .capture-inline-action{margin-top:0;font-size:12px}
+.capture-source-hint{font-size:12px}
+.capture-inline-action{font-size:12px}
+.capture-stage .capture-resolution{top:9px;right:9px;bottom:auto;border-radius:4px;font-size:10px}
+.recording-source-panel .capture-source>header>strong{margin-right:auto}
+.recording-source-panel .capture-audio>[role=meter]{height:18px}
+.recording-source-panel .capture-source-hint{margin-top:2px;min-height:0}
+.capture-audio-only{font-size:12px;line-height:1.5}
+
+/* Composed preview: boxes are positioned from the Creator preset, so the corner of the screen is exactly where the export puts it. */
+.capture-stage.composed{background:#121212;background-image:radial-gradient(rgb(255 255 255 / .10) 1px,transparent 1.2px);background-size:14px 14px}
+.capture-stage-screen,.capture-stage-camera{position:absolute;overflow:hidden;border-radius:5px;box-shadow:0 5px 12px rgb(0 0 0 / .45);background:#000}
+.capture-stage-screen>.capture-video,.capture-stage-camera>.capture-video{position:absolute;inset:0;height:auto;min-height:0;border-radius:0}
+.capture-stage-screen>.capture-video>video,.capture-stage-camera>.capture-video>video{object-fit:cover}
+.capture-stage-camera>.capture-video{background:#1a1a1a}
+/* Next step after a confirmed take: the way out of the recorder is a button, not a tab to find. */
+.recording-next{display:flex;align-items:center;justify-content:space-between;gap:16px;margin:16px 0 4px;padding:14px 16px;border:1px solid var(--line);border-radius:10px;background:var(--secondary)}
+.recording-next>div{display:flex;flex-direction:column;gap:2px;min-width:0}
+.recording-next strong{font-size:14px;font-weight:600}
+.recording-next span{font-size:12px;color:var(--muted)}
+.recording-next .button{flex-shrink:0;gap:8px}

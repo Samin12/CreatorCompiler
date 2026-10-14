@@ -170,6 +170,8 @@ app.whenReady().then(async()=>{
  ipcMain.handle('media-permissions',e=>{verifyDesktopSender(e);return getMediaPermissions();});
  ipcMain.handle('request-media-permission',(e,kind)=>{verifyDesktopSender(e);return requestMediaPermission(kind);});
  ipcMain.handle('open-privacy-settings',(e,section)=>{verifyDesktopSender(e);return openPrivacySettings(section);});
+ // macOS applies a new screen-recording grant only to a fresh process.
+ ipcMain.handle('relaunch-app',e=>{verifyDesktopSender(e);app.relaunch();app.quit();});
  ipcMain.handle('choose-folder',async e=>{verifyDesktopSender(e);const result=await dialog.showOpenDialog(mainWindow,{title:'Choose a project or media folder',properties:['openDirectory','createDirectory']});return result.canceled?null:result.filePaths[0]??null;});
  mainWindow.webContents.on('before-input-event',routeNativeInput);
  mainWindow.webContents.on('did-start-loading',resetShortcutContext);

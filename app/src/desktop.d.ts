@@ -93,6 +93,8 @@ export interface SceneForgeDesktopBridge {
  getMediaPermissions?(): Promise<DesktopMediaPermissions>;
  requestMediaPermission?(permission: 'camera' | 'microphone'): Promise<{permission: 'camera' | 'microphone'; granted: boolean; status: DesktopMediaAccessStatus}>;
  openPrivacySettings?(section: DesktopPrivacySection): Promise<void>;
+ /** Restarts the app so macOS applies a newly granted screen-recording permission. */
+ relaunch?(): Promise<void>;
  reveal(path: string): Promise<void>;
  onShortcutAction?(handler: (action: string) => void): () => void;
  setShortcutContext?(context: {workspace: 'home' | 'script' | 'record' | 'edit' | 'teleprompter'; editable: boolean; timelineFocused: boolean; availableActions: string[]; bindings?: ShortcutOverrides}): Promise<DesktopShortcutStatus>;
