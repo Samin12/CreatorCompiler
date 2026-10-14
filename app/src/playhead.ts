@@ -10,7 +10,8 @@ export function createPlayhead(initial=0):Playhead{
 export function usePlayheadTime(playhead:Playhead):number{return useSyncExternalStore(playhead.subscribe,playhead.get,playhead.get);}
 /** Re-renders only when the selected value changes, e.g. the active transcript word or a rounded clock label. */
 export function usePlayheadSelector<T>(playhead:Playhead,select:(time:number)=>T,equal:(a:T,b:T)=>boolean=Object.is):T{
- const latest=useRef<{time:number;value:T}|null>(null),selectRef=useRef(select),equalRef=useRef(equal);selectRef.current=select;equalRef.current=equal;
- const snapshot=useCallback(()=>{const time=playhead.get(),previous=latest.current;if(previous&&previous.time===time)return previous.value;const value=selectRef.current(time);if(previous&&equalRef.current(previous.value,value)){latest.current={time,value:previous.value};return previous.value;}latest.current={time,value};return value;},[playhead]);
+ const latest=useRef<{time:number;select:(time:number)=>T;value:T}|null>(null),selectRef=useRef(select),equalRef=useRef(equal);selectRef.current=select;equalRef.current=equal;
+ // A new selector can read new data at the same time, so the cached value is keyed on both; equal results keep their identity.
+ const snapshot=useCallback(()=>{const time=playhead.get(),select=selectRef.current,previous=latest.current;if(previous&&previous.time===time&&previous.select===select)return previous.value;const value=select(time);if(previous&&equalRef.current(previous.value,value)){latest.current={time,select,value:previous.value};return previous.value;}latest.current={time,select,value};return value;},[playhead]);
  return useSyncExternalStore(playhead.subscribe,snapshot,snapshot);
 }
