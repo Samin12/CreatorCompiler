@@ -1,4 +1,4 @@
-import {promises as fs,createReadStream} from 'node:fs';
+import {promises as fs} from 'node:fs';
 import {randomUUID,createHash} from 'node:crypto';
 import path from 'node:path';
 import {spawn} from 'node:child_process';
@@ -17,13 +17,15 @@ export async function appendRecording(id:string,index:number,bytes:Buffer){retur
  if(index>0)await fs.access(path.join(folder,String(index-1).padStart(9,'0')+'.chunk'));
  const disk=await fs.statfs(folder);if(disk.bavail*disk.bsize<bytes.length+50*1024*1024)throw new Error('Not enough disk space to safely continue recording');
  const temp=file+'.tmp';await fs.writeFile(temp,bytes,{mode:0o600});await fs.rename(temp,file);captureActivity.open(id);return{ok:true,index};});}
-/** ffmpeg input for the ordered chunks. Relative 15-character names keep the concat: argument short;
- * only an extremely long take falls back to one joined intermediate file. */
-export async function chunkInput(folder:string,chunks:string[],extension:string,limit=200_000){
- const list='concat:'+chunks.join('|');if(list.length<=limit)return list;
- const raw='capture.'+extension,output=await fs.open(path.join(folder,raw),'w',0o600);
- try{for(const chunk of chunks)for await(const data of createReadStream(path.join(folder,chunk)))await output.writeFile(data);}finally{await output.close();}
- return raw;
+/** Losslessly remuxes the ordered chunks. cat streams them straight into ffmpeg's stdin, one open file at a time
+ * (the concat: protocol opens every chunk at once and can exceed the descriptor limit), with no intermediate copy. */
+export async function remuxChunks(folder:string,chunks:string[],output:string[],batch=1000){
+ const child=spawn(process.env.SCENEFORGE_FFMPEG||'ffmpeg',['-nostdin','-v','error','-y','-i','pipe:0','-map','0','-c','copy',...output],{cwd:folder,stdio:['pipe','ignore','pipe']});
+ let error='',copyError:Error|undefined;child.stderr.on('data',d=>{error=(error+d).slice(-6000);});child.stdin.on('error',()=>{});
+ const exited=new Promise<number|null>((resolve,reject)=>{child.once('error',reject);child.once('close',resolve);});exited.catch(()=>{});
+ try{for(let i=0;i<chunks.length&&child.exitCode===null&&child.signalCode===null;i+=batch){const cat=spawn('/bin/cat',chunks.slice(i,i+batch),{cwd:folder,stdio:['ignore',child.stdin,'ignore']});const code=await new Promise<number|null>((resolve,reject)=>{cat.once('error',reject);cat.once('close',resolve);});if(code){copyError=Error('Recording chunks could not be read');break;}}}
+ catch(e){copyError=e as Error;}finally{child.stdin.end();}
+ const code=await exited;if(code)throw new Error(error||'Recording finalization failed');if(copyError)throw copyError;
 }
 let warming=Promise.resolve();
 /** Warms an audio take's review waveform in the background, one at a time so probes keep a free slot. */
@@ -34,16 +36,16 @@ export async function finishRecording(id:string){captureActivity.close(safeId(id
  const folder=path.join(directory,id),metadata=JSON.parse(await fs.readFile(path.join(folder,'metadata.json'),'utf8'));
  if(metadata.media)return metadata.media;
  const chunks=(await fs.readdir(folder)).filter(f=>f.endsWith('.chunk')).sort();if(!chunks.length)throw new Error('No completed recording chunks available');
- const mp4=isMP4(metadata.mimeType),extension=mp4?'mp4':'webm',final=path.join(folder,'take.'+extension),temp=final+'.tmp',input=await chunkInput(folder,chunks,extension);
+ const mp4=isMP4(metadata.mimeType),final=path.join(folder,mp4?'take.mp4':'take.webm'),temp=final+'.tmp';
  // Streaming MediaRecorder WebM omits Duration and seek cues; fragmented MP4 has no front index. A lossless remux writes both.
- await new Promise<void>((resolve,reject)=>{const child=spawn(process.env.SCENEFORGE_FFMPEG||'ffmpeg',['-nostdin','-v','error','-y','-i',input,'-map','0','-c','copy',...(mp4?['-movflags','+faststart','-f','mp4']:['-f','webm']),path.basename(temp)],{cwd:folder});let error='';child.stderr.on('data',d=>{error=(error+d).slice(-6000);});child.once('error',reject);child.once('close',code=>code?reject(new Error(error||'Recording finalization failed')):resolve());});
+ await remuxChunks(folder,chunks,[...(mp4?['-movflags','+faststart','-f','mp4']:['-f','webm']),path.basename(temp)]);
  const media=await probeMedia(temp,CACHE_DIR);if(!Number.isFinite(media.duration)||media.duration<=0)throw new Error('The recorded take contains no playable duration');
  await fs.rename(temp,final);media.path=final;media.name=metadata.name;if(isAudioRole(metadata.audioRole))media.audioRole=metadata.audioRole;await registerMedia(media);
  await atomicJSON(path.join(folder,'metadata.json'),{...metadata,status:'complete',media,completedAt:new Date().toISOString()});
  // Completed folders are never recovered, so chunk cleanup and the review waveform run after the response.
- void removeChunks(folder,[...chunks,'capture.webm','capture.mp4']);warmTakeWaveform(media);
+ void removeChunks(folder,[...chunks,'capture.webm']);warmTakeWaveform(media);
  return media;
 });}
 /** Removes chunks left behind in completed recordings when the service stopped before cleanup finished. */
-export async function cleanupCompletedRecordings(){const ids=await fs.readdir(directory).catch(()=>[]);for(const id of ids){try{const folder=path.join(directory,id);const meta=JSON.parse(await fs.readFile(path.join(folder,'metadata.json'),'utf8'));if(meta.status==='complete'&&meta.media&&!queues.has(id))await removeChunks(folder,(await fs.readdir(folder)).filter(f=>f.endsWith('.chunk')||f==='capture.webm'||f==='capture.mp4'));}catch{}}}
+export async function cleanupCompletedRecordings(){const ids=await fs.readdir(directory).catch(()=>[]);for(const id of ids){try{const folder=path.join(directory,id);const meta=JSON.parse(await fs.readFile(path.join(folder,'metadata.json'),'utf8'));if(meta.status==='complete'&&meta.media&&!queues.has(id))await removeChunks(folder,(await fs.readdir(folder)).filter(f=>f.endsWith('.chunk')||f==='capture.webm'));}catch{}}}
 export async function recoverableRecordings(){const ids=await fs.readdir(directory).catch(()=>[]);const results=[];for(const id of ids){try{const folder=path.join(directory,id);const meta=JSON.parse(await fs.readFile(path.join(folder,'metadata.json'),'utf8'));if(meta.status!=='complete'){const count=(await fs.readdir(folder)).filter(f=>f.endsWith('.chunk')).length;if(count)results.push({...meta,chunks:count});}}catch{}}return results;}

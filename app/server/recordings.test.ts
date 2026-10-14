@@ -44,10 +44,16 @@ test('fragmented MP4 chunks finalize to a front-indexed take.mp4 with unchanged 
  assert.equal((await readdir(path.dirname(media.path))).some(f=>f.endsWith('.chunk')),false);assert.equal((await r.finishRecording(session.id)).path,media.path);
  await assert.rejects(r.createRecording('Matroska','video/x-matroska;codecs=avc1'),/WebM or MP4/);
 });
-test('very long chunk lists join into one intermediate, and startup cleanup removes only completed leftovers',async()=>{
- const {writeFile,readdir}=await import('node:fs/promises');const dir=await mkdtemp(path.join(folder,'join-'));
- for(const [i,text] of ['ab','cd','e'].entries())await writeFile(path.join(dir,String(i).padStart(9,'0')+'.chunk'),text);
- const chunks=(await readdir(dir)).sort();assert.equal(await r.chunkInput(dir,chunks,'webm'),'concat:'+chunks.join('|'));assert.equal(await r.chunkInput(dir,chunks,'webm',10),'capture.webm');assert.equal(await readFile(path.join(dir,'capture.webm'),'utf8'),'abcde');
+test('chunks stream through cat in order in several batches, a missing chunk fails, and startup cleanup removes only completed leftovers',async()=>{
+ const {writeFile,readdir}=await import('node:fs/promises');const dir=await mkdtemp(path.join(folder,'stream-')),run=promisify(execFile),source=path.join(dir,'source.webm');
+ await run('ffmpeg',['-v','error','-f','lavfi','-i','testsrc2=size=160x90:rate=15:duration=1','-c:v','libvpx','-live','1','-y',source]);const data=await readFile(source),size=Math.ceil(data.length/5),chunks:string[]=[];
+ for(let i=0;i*size<data.length;i++){const name=String(i).padStart(9,'0')+'.chunk';await writeFile(path.join(dir,name),data.subarray(i*size,(i+1)*size));chunks.push(name);}
+ await r.remuxChunks(dir,chunks,['-f','webm','joined.webm'],2);const md5=async(file:string)=>(await run('ffmpeg',['-v','error','-i',file,'-map','0:v','-f','md5','-'])).stdout;assert.equal(await md5(path.join(dir,'joined.webm')),await md5(source));
+ await assert.rejects(r.remuxChunks(dir,[...chunks,'000000099.chunk'],['-f','webm','broken.webm']));
+ const many=await mkdtemp(path.join(folder,'many-')),small=Math.ceil(data.length/300),names:string[]=[];for(let i=0;i*small<data.length;i++){const name=String(i).padStart(9,'0')+'.chunk';await writeFile(path.join(many,name),data.subarray(i*small,(i+1)*small));names.push(name);}
+ const code=`import {remuxChunks} from './server/recordings.ts';await remuxChunks(${JSON.stringify(many)},${JSON.stringify(names)},['-f','webm','joined.webm']);`;
+ await run('/bin/sh',['-c','ulimit -n 128 && exec "$0" "$@"',process.execPath,'--import','tsx','--input-type=module','-e',code],{cwd:path.resolve(import.meta.dirname,'..'),env:{...process.env,SCENEFORGE_DATA_DIR:folder}});
+ assert.equal(await md5(path.join(many,'joined.webm')),await md5(source),'hundreds of chunks finalize under a low descriptor limit');
  const input=path.join(folder,'cleanup.webm');await promisify(execFile)('ffmpeg',['-v','error','-f','lavfi','-i','sine=frequency=440:duration=0.3','-c:a','libopus','-y',input]);const bytes=await readFile(input);
  const waves=async()=>(await readdir(s.CACHE_DIR)).filter(f=>f.endsWith('.wave-v2.json')).length;await r.waveformWarmup();const before=await waves();
  const done=await r.createRecording('Done','audio/webm'),open=await r.createRecording('Open','audio/webm');await r.appendRecording(done.id,0,bytes);await r.appendRecording(open.id,0,bytes);const media=await r.finishRecording(done.id);
