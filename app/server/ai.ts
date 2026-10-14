@@ -7,9 +7,12 @@ import { makeId, clipDuration, narrationPriority, type AISettings, type AISugges
 async function executable(name:string):Promise<string|undefined>{
  for(const entry of name.includes('/')?[name]:(process.env.PATH??'').split(path.delimiter).map(p=>path.join(p,name)))try{await access(entry,constants.X_OK);return entry}catch{}
 }
-async function run(command:string,args:string[],timeout=30*60*1000,signal?:AbortSignal):Promise<{stdout:string;stderr:string}>{
- signal?.throwIfAborted();
- return new Promise((resolve,reject)=>{let stdout='',stderr='',failure:Error|undefined,killTimer:NodeJS.Timeout|undefined;const child=spawn(command,args,{stdio:['ignore','pipe','pipe']});
+// taskpolicy execs the target in place (same PID), so kill/abort still reach the worker. Background QoS keeps automatic work on efficiency cores with throttled I/O.
+let backgroundPolicy:Promise<string|undefined>|undefined;
+const taskpolicy=()=>backgroundPolicy??=access('/usr/sbin/taskpolicy',constants.X_OK).then(()=>'/usr/sbin/taskpolicy',()=>undefined);
+async function run(command:string,args:string[],timeout=30*60*1000,signal?:AbortSignal,background=false):Promise<{stdout:string;stderr:string}>{
+ signal?.throwIfAborted();const policy=background?await taskpolicy():undefined;signal?.throwIfAborted();
+ return new Promise((resolve,reject)=>{let stdout='',stderr='',failure:Error|undefined,killTimer:NodeJS.Timeout|undefined;const child=policy?spawn(policy,['-b',command,...args],{stdio:['ignore','pipe','pipe']}):spawn(command,args,{stdio:['ignore','pipe','pipe']});
  const stop=(error:Error)=>{failure=error;child.kill('SIGTERM');killTimer=setTimeout(()=>child.kill('SIGKILL'),1500);killTimer.unref();};
  const abort=()=>stop(new Error('Transcription cancelled.'));signal?.addEventListener('abort',abort,{once:true});
  const timer=setTimeout(()=>stop(new Error(`${path.basename(command)} timed out.`)),timeout);
@@ -50,7 +53,8 @@ function providerUrl(settings:AISettings,route:string):string{
  if(url.protocol!=='https:'&&!(url.protocol==='http:'&&['localhost','127.0.0.1','[::1]'].includes(url.hostname)))throw new Error('Provider URL must use HTTPS or local HTTP.');return url.href;
 }
 /** Returns source-media times. The caller maps these through each timeline clip. */
-export async function transcribe(media:Media,settings:AISettings,workDir:string,options:{signal?:AbortSignal;progress?:(fraction:number)=>void}={}):Promise<{captions:Caption[];provider:string}>{
+/** `background` runs automatic work at background QoS with fewer threads; `prepared` marks a validated mono 16 kHz PCM16 WAV that needs no conversion. */
+export async function transcribe(media:Media,settings:AISettings,workDir:string,options:{signal?:AbortSignal;progress?:(fraction:number)=>void;background?:boolean;prepared?:boolean}={}):Promise<{captions:Caption[];provider:string}>{
  options.signal?.throwIfAborted();
  if(media.kind==='image'||media.hasAudio===false)throw new Error('This media has no audio track.');
  const ffmpeg=await executable('ffmpeg');if(!ffmpeg)throw new Error('FFmpeg is required to prepare audio for transcription.');
@@ -63,9 +67,10 @@ export async function transcribe(media:Media,settings:AISettings,workDir:string,
  }else if(!settings.apiKey&&settings.provider!=='openai-compatible')throw new Error('Add your own provider API key in AI settings before cloud transcription.');
  await mkdir(workDir,{recursive:true});const dir=path.join(workDir,`transcribe-${makeId()}`);await mkdir(dir);const audio=path.join(dir,'audio.wav');
  try{
-  await run(ffmpeg,['-hide_banner','-loglevel','error','-nostdin','-i',media.path,'-vn','-ac','1','-ar','16000','-c:a','pcm_s16le',audio],30*60*1000,options.signal);options.progress?.(.2);
+  const input=options.prepared&&settings.provider==='local'?media.path:audio;
+  if(input===audio)await run(ffmpeg,['-hide_banner','-loglevel','error','-nostdin','-i',media.path,'-vn','-ac','1','-ar','16000','-c:a','pcm_s16le',audio],30*60*1000,options.signal,options.background);options.progress?.(.2);
   if(settings.provider==='local'){
-   const output=path.join(dir,'transcript');await run(command!,['-m',model,'-f',audio,'-l',settings.language||'auto','-t','4','-ojf','-of',output,'-ml','42','-sow','-np'],30*60*1000,options.signal);options.progress?.(.95);
+   const output=path.join(dir,'transcript');await run(command!,['-m',model,'-f',input,'-l',settings.language||'auto','-t',options.background?'2':'4','-ojf','-of',output,'-ml','42','-sow','-np'],30*60*1000,options.signal,options.background);options.progress?.(.95);
    return {captions:parseTranscription(JSON.parse(await readFile(`${output}.json`,'utf8'))),provider:'local whisper.cpp'};
   }
   const data=await readFile(audio);if(data.byteLength>24_000_000)throw new Error('Cloud transcription input exceeds the current 24 MB upload limit. Use local transcription or transcribe a shorter media file.');
