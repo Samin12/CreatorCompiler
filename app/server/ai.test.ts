@@ -52,16 +52,16 @@ test('local transcription cancellation terminates the actual worker and removes 
  }finally{await rm(dir,{recursive:true,force:true});}
 });
 
-test('automatic background transcription runs in place at background QoS with two threads and stays cancellable',async()=>{
+test('automatic background transcription runs niced with two threads and stays cancellable',async()=>{
  const {writeFile,readFile}=await import('node:fs/promises');const {transcribe}=await import('./ai.js');
  const dir=await mkdtemp(path.join(tmpdir(),'sceneforge-transcribe-background-')),file=path.join(dir,'tone.wav'),worker=path.join(dir,'whisper'),model=path.join(dir,'model.bin'),report=path.join(dir,'worker.json');
  try{
   await promisify(execFile)(process.env.SCENEFORGE_FFMPEG||'ffmpeg',['-v','error','-y','-f','lavfi','-i','sine=frequency=440:duration=1',file]);await writeFile(model,'fixture');
-  await writeFile(worker,`#!${process.execPath}\nrequire('fs').writeFileSync(${JSON.stringify(report)},JSON.stringify({pid:process.pid,ppid:process.ppid,args:process.argv.slice(2)}));setInterval(()=>{},1000);`,{mode:0o700});
+  await writeFile(worker,`#!${process.execPath}\nsetTimeout(()=>require('fs').writeFileSync(${JSON.stringify(report)},JSON.stringify({pid:process.pid,ppid:process.ppid,nice:require('os').getPriority(),args:process.argv.slice(2)})),150);setInterval(()=>{},1000);`,{mode:0o700});
   const abort=new AbortController(),promise=transcribe({id:'tone',name:'tone',path:file,kind:'audio',duration:1,width:0,height:0},{provider:'local',baseUrl:'',model,localCommand:worker,language:'en'},dir,{signal:abort.signal,background:true});
   for(let i=0;i<150;i++){if(await readFile(report,'utf8').catch(()=>''))break;await new Promise(r=>setTimeout(r,20));}
   const seen=JSON.parse(await readFile(report,'utf8'));assert.equal(seen.args[seen.args.indexOf('-t')+1],'2');
-  if(process.platform==='darwin')assert.equal(seen.ppid,process.pid,'taskpolicy replaces itself with the worker');
+  assert.equal(seen.ppid,process.pid,'the worker is a direct child, so cancel and capture holds reach it');if(process.platform!=='win32')assert.equal(seen.nice,10,'automatic work yields CPU without throttled I/O');
   abort.abort();await assert.rejects(promise,/cancelled/);assert.throws(()=>process.kill(seen.pid,0));
  }finally{await rm(dir,{recursive:true,force:true});}
 });

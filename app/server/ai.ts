@@ -1,20 +1,22 @@
 import { spawn } from 'node:child_process';
 import { access, mkdir, readFile, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
+import { setPriority } from 'node:os';
 import { constants } from 'node:fs';
 import { makeId, clipDuration, narrationPriority, type AISettings, type AISuggestion, type Caption, type Media, type Project } from '../shared/types.js';
 
 async function executable(name:string):Promise<string|undefined>{
  for(const entry of name.includes('/')?[name]:(process.env.PATH??'').split(path.delimiter).map(p=>path.join(p,name)))try{await access(entry,constants.X_OK);return entry}catch{}
 }
-// taskpolicy execs the target in place (same PID), so kill/abort still reach the worker. Background QoS keeps automatic work on efficiency cores with throttled I/O.
-let backgroundPolicy:Promise<string|undefined>|undefined;
-const taskpolicy=()=>backgroundPolicy??=access('/usr/sbin/taskpolicy',constants.X_OK).then(()=>'/usr/sbin/taskpolicy',()=>undefined);
+// Automatic work runs at a lower CPU priority only. Background QoS (taskpolicy -b) also throttles disk I/O,
+// which can starve even the worker's own start-up for minutes while other I/O is busy.
+const BACKGROUND_NICE=10;
 /** While `remaining()` is positive (an open capture), a held worker is stopped with SIGSTOP and its deadline frozen. */
 export interface WorkHold {remaining():number;idle(signal?:AbortSignal):Promise<void>;changed(signal?:AbortSignal):Promise<void>}
 async function run(command:string,args:string[],timeout=30*60*1000,signal?:AbortSignal,background=false,hold?:WorkHold):Promise<{stdout:string;stderr:string}>{
- signal?.throwIfAborted();const policy=background?await taskpolicy():undefined;signal?.throwIfAborted();
- return new Promise((resolve,reject)=>{let stdout='',stderr='',failure:Error|undefined,killTimer:NodeJS.Timeout|undefined,paused=false,left=timeout;const child=policy?spawn(policy,['-b',command,...args],{stdio:['ignore','pipe','pipe']}):spawn(command,args,{stdio:['ignore','pipe','pipe']});
+ signal?.throwIfAborted();
+ return new Promise((resolve,reject)=>{let stdout='',stderr='',failure:Error|undefined,killTimer:NodeJS.Timeout|undefined,paused=false,left=timeout;const child=spawn(command,args,{stdio:['ignore','pipe','pipe']});
+ if(background&&child.pid)try{setPriority(child.pid,BACKGROUND_NICE);}catch{}
  const stop=(error:Error)=>{failure=error;if(paused){paused=false;child.kill('SIGCONT');}child.kill('SIGTERM');killTimer=setTimeout(()=>child.kill('SIGKILL'),1500);killTimer.unref();};
  const abort=()=>stop(new Error('Transcription cancelled.'));signal?.addEventListener('abort',abort,{once:true});
  const expire=()=>stop(new Error(`${path.basename(command)} timed out.`));let deadline=Date.now()+timeout,timer=setTimeout(expire,timeout);
