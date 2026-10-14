@@ -177,10 +177,21 @@ test('a draft-only failure is retried once on a full copy and reported',()=>{
   assert.equal(draftStats.fallbacks,fallbacks+1);assert.equal(next.clips.at(-1)!.id,'copied');assert.deepEqual(next.clips.at(-1)!.transform,fixture.clips[0].transform);assert.equal(next.updatedAt,STAMP);
   // A draft kept after its edit cannot be repaired by the retry, so the error still reaches the caller.
   let leaked:Project|undefined;applyProjectChange(fixture,p=>{leaked=p;});
-  assert.throws(()=>applyProjectChange(fixture,p=>{p.name=leaked!.name;}),/revoked/);assert.equal(draftStats.fallbacks,fallbacks+2);assert.equal(fixture.name,'Fixture');
+  assert.throws(()=>applyProjectChange(fixture,p=>{p.name=leaked!.name;}),/revoked/);assert.equal(draftStats.fallbacks,fallbacks+1,'a retry that fails too is not counted');assert.equal(fixture.name,'Fixture');
   assert.ok(warn.mock.callCount()<=1,'the fallback is reported once');
-  assert.throws(()=>applyProjectChange(fixture,()=>{(undefined as unknown as {x:number}).x=1;}),TypeError);
+  assert.throws(()=>applyProjectChange(fixture,()=>{(undefined as unknown as {x:number}).x=1;}),TypeError);assert.equal(draftStats.fallbacks,fallbacks+1);
  }finally{warn.mock.restore();}
+});
+
+test('a bug in the edit itself does not use up the one-time draft report',()=>{
+ const warn=mock.method(console,'warn',()=>{}),fallbacks=draftStats.fallbacks;draftStats.fallbacks=0;
+ try{
+  let runs=0;
+  assert.throws(()=>applyProjectChange(fixture,p=>{runs++;p.name=(p.scenes[99] as unknown as {name:string}).name;}),TypeError);
+  assert.equal(runs,2,'the edit is retried once on a plain copy');assert.equal(draftStats.fallbacks,0);assert.equal(warn.mock.callCount(),0);assert.equal(fixture.name,'Fixture');
+  applyProjectChange(fixture,p=>{p.notes=structuredClone(p.scenes[0]).name;},STAMP);
+  assert.equal(draftStats.fallbacks,1);assert.equal(warn.mock.callCount(),1,'a later real draft failure is still reported');
+ }finally{draftStats.fallbacks+=fallbacks;warn.mock.restore();}
 });
 
 test('edits that return a value still apply',()=>{
