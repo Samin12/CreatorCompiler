@@ -5,6 +5,7 @@ import {renderToStaticMarkup} from 'react-dom/server';
 import {canvasBackgroundGeometry,canvasBackgroundTile,canvasBackgroundBMP,canvasBackgroundStyle,canvasBackgroundRepeatSize,MOVING_DOTS} from '../shared/canvas-background';
 import {createProject} from '../shared/types';
 import {Stage} from './Stage';
+import {createPlayhead} from './playhead';
 
 const canvas={width:1920,height:1080,background:'#121212'};
 test('moving grid follows height-scaled reference geometry and exact fractional output spacing',()=>{
@@ -33,7 +34,7 @@ test('independent raster has origin-centered soft dots, custom base color and a 
 });
 test('Stage paints pattern below all layers from timeline time and keeps solid or empty project behavior explicit',()=>{
  const p=createProject();p.canvas={...p.canvas,...canvas,backgroundPattern:'moving-dots'};
- const render=(time:number)=>renderToStaticMarkup(React.createElement(Stage,{project:p,time,playing:false,onSelect:()=>{},onImport:()=>{}}));
+ const render=(time:number)=>renderToStaticMarkup(React.createElement(Stage,{project:p,playhead:createPlayhead(time),playing:false,onSelect:()=>{},onImport:()=>{}}));
  const start=render(0),later=render(4);assert.match(start,/radial-gradient/);assert.notEqual(start,later);assert.equal(later,render(20));assert.match(start,/class="stage-empty" style="background:transparent/);
  delete p.canvas.backgroundPattern;assert.doesNotMatch(render(0),/radial-gradient/);assert.doesNotMatch(render(0),/style="background:transparent/);
 });

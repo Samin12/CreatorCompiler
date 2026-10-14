@@ -1,4 +1,4 @@
-import {useEffect,useMemo,useRef,useState} from 'react';
+import {memo,useEffect,useMemo,useRef,useState} from 'react';
 import type {Project} from '../shared/types';import {clipDuration,projectDuration} from '../shared/types';
 import type {AgentChatJob,AgentStatus} from '../shared/agent-chat';
 import {mergeChatJobs} from './agent-chat-state';
@@ -8,26 +8,29 @@ import './agent-chat.css';
 type Range={start:number;end:number};
 const timestamp=(value:number)=>`${Math.floor(value/60).toString().padStart(2,'0')}:${(value%60).toFixed(2).padStart(5,'0')}`;
 const active=(job:AgentChatJob)=>job.status==='queued'||job.status==='running';
-export function AgentChat({project,selectedIds,range,onRange,playhead,visible,onClose,onClearSelection,flush,onError}:{project:Project;selectedIds:ReadonlySet<string>;range:Range|null;onRange:(range:Range|null)=>void;playhead:number;visible:boolean;onClose:()=>void;onClearSelection:()=>void;flush:()=>Promise<Project|undefined>;onError:(message:string)=>void}){
+export const AgentChat=memo(function AgentChat({project,selectedIds,range,onRange,getPlayhead,visible,onClose,onClearSelection,flush,onError}:{project:Project;selectedIds:ReadonlySet<string>;range:Range|null;onRange:(range:Range|null)=>void;getPlayhead:()=>number;visible:boolean;onClose:()=>void;onClearSelection:()=>void;flush:()=>Promise<Project|undefined>;onError:(message:string)=>void}){
  const [status,setStatus]=useState<AgentStatus|null>(null),[statusError,setStatusError]=useState(''),[jobs,setJobs]=useState<AgentChatJob[]>([]),[prompt,setPrompt]=useState(''),[sending,setSending]=useState(false),[error,setError]=useState(''),[connection,setConnection]=useState<'live'|'reconnecting'>('live'),[undoing,setUndoing]=useState('');
- const mounted=useRef(true),projectRef=useRef(project),messages=useRef<HTMLDivElement>(null),follow=useRef(true);projectRef.current=project;
+ const statusRequested=useRef(false),projectRef=useRef(project),messages=useRef<HTMLDivElement>(null),follow=useRef(true);projectRef.current=project;
  const selectionKey=[...selectedIds].sort().join('\n');const clips=useMemo(()=>project.clips.filter(c=>selectedIds.has(c.id)),[project.clips,selectionKey]);const invalidSelection=selectedIds.size-clips.length;
  const running=jobs.find(active),busy=sending||Boolean(running),ready=Boolean(status?.supported&&status.installed&&status.authenticated);
  const merge=(job:AgentChatJob)=>setJobs(values=>mergeChatJobs(values,[job]));
- const refreshStatus=()=>{setStatusError('');void api<AgentStatus>('/agent/status?refresh=1').then(value=>{if(mounted.current)setStatus(value);}).catch(e=>{if(mounted.current)setStatusError(e.message);});};
- useEffect(()=>{mounted.current=true;refreshStatus();void api<{jobs:AgentChatJob[]}>(`/projects/${project.id}/agent-chat`).then(value=>{if(mounted.current)setJobs(current=>mergeChatJobs(current,value.jobs));}).catch(e=>{if(mounted.current)setError(e.message);});return()=>{mounted.current=false;};},[project.id]);
+ // The cached status is enough on first open; only the Refresh button forces a new Claude CLI check.
+ const loadStatus=(refresh:boolean)=>{setStatusError('');void api<AgentStatus>(`/agent/status${refresh?'?refresh=1':''}`).then(setStatus).catch(e=>setStatusError(e.message));};
+ useEffect(()=>{if(!visible||statusRequested.current)return;statusRequested.current=true;loadStatus(false);},[visible]);
+ // A hidden editor (Activity) cleans effects up without unmounting, so in-flight work below must still settle its state; React ignores updates after a real unmount.
+ useEffect(()=>{let live=true;void api<{jobs:AgentChatJob[]}>(`/projects/${project.id}/agent-chat`).then(value=>{if(live)setJobs(current=>mergeChatJobs(current,value.jobs));}).catch(e=>{if(live)setError(e.message);});return()=>{live=false;};},[project.id]);
  useEffect(()=>{if(!running)return;let disposed=false;const events=new EventSource(`/api/agent-chat/${running.id}/events`);let timer:ReturnType<typeof setInterval>|undefined;
   const update=(job:AgentChatJob)=>{if(!disposed){setConnection('live');merge(job);}};
   events.addEventListener('job',event=>{try{update(JSON.parse((event as MessageEvent).data));}catch{}});events.onopen=()=>{setConnection('live');if(timer){clearInterval(timer);timer=undefined;}};events.onerror=()=>{if(disposed)return;setConnection('reconnecting');if(!timer)timer=setInterval(()=>void api<AgentChatJob>(`/agent-chat/${running.id}`).then(update).catch(()=>{}),1500);};
   return()=>{disposed=true;events.close();if(timer)clearInterval(timer);};
  },[running?.id]);
  useEffect(()=>{const el=messages.current;if(el&&follow.current)el.scrollTop=el.scrollHeight;},[jobs,visible]);
- const send=async()=>{if(busy||!ready)return;setError('');setSending(true);try{const request=buildChatRequest(project,selectedIds,range,playhead,prompt);const snapshot=await flush();if(!mounted.current||!snapshot||snapshot.id!==project.id)throw new Error('The project changed before sending. Review the selection and try again.');buildChatRequest(snapshot,new Set(request.selectedClipIds),request.range??null,request.playhead,request.message);const job=await api<AgentChatJob>(`/projects/${project.id}/agent-chat`,request);if(mounted.current){merge(job);setPrompt('');follow.current=true;}}catch(e){if(mounted.current)setError((e as Error).message);}finally{if(mounted.current)setSending(false);}};
+ const send=async()=>{if(busy||!ready)return;setError('');setSending(true);try{const request=buildChatRequest(project,selectedIds,range,getPlayhead(),prompt);const snapshot=await flush();if(!snapshot||snapshot.id!==project.id)throw new Error('The project changed before sending. Review the selection and try again.');buildChatRequest(snapshot,new Set(request.selectedClipIds),request.range??null,request.playhead,request.message);const job=await api<AgentChatJob>(`/projects/${project.id}/agent-chat`,request);merge(job);setPrompt('');follow.current=true;}catch(e){setError((e as Error).message);}finally{setSending(false);}};
  const cancel=async(job:AgentChatJob)=>{try{merge(await api<AgentChatJob>(`/agent-chat/${job.id}`,undefined,'DELETE'));}catch(e){setError((e as Error).message);}};
  const undo=async(job:AgentChatJob)=>{setUndoing(job.id);setError('');try{await flush();await api<Project>(`/projects/${project.id}/agent-chat/${job.id}/undo`,{});merge({...job,undone:true});}catch(e){setError((e as Error).message);}finally{setUndoing('');}};
  const currentScope=invalidSelection?'Selection needs attention':clips.length?`${clips.length} selected ${clips.length===1?'clip':'clips'}`:range?'Time range':'Entire project';
  return <aside className="agent-chat" hidden={!visible} aria-label="Edit with Claude"><header><div><Sparkles size={17}/><strong>Claude editor</strong></div><button className="icon-button" aria-label="Close Claude editor" onClick={onClose}><X size={17}/></button></header>
- <div className="agent-provider"><span className={ready?'ready':''}/><span>{statusError?'Connection unavailable':!status?'Checking Claude Code…':ready?'Claude Code · signed in':status.installed?'Claude Code · setup needed':'Claude Code unavailable'}</span><button onClick={refreshStatus} aria-label="Refresh Claude connection">Refresh</button></div>
+ <div className="agent-provider"><span className={ready?'ready':''}/><span>{statusError?'Connection unavailable':!status?'Checking Claude Code…':ready?'Claude Code · signed in':status.installed?'Claude Code · setup needed':'Claude Code unavailable'}</span><button onClick={()=>loadStatus(true)} aria-label="Refresh Claude connection">Refresh</button></div>
  {!ready&&<div className="agent-setup"><b>Use your local Claude Code</b><p>{statusError||status?.message||'Checking the local command and sign-in status.'}</p>{status&&status.installed&&!status.authenticated&&<p>Sign in from Terminal with <code>claude auth login</code>, then refresh.</p>}{status&&!status.installed&&<p>Install Claude Code, sign in, and refresh. Your request uses that account.</p>}</div>}
  <div className="agent-messages" ref={messages} onScroll={e=>{const el=e.currentTarget;follow.current=el.scrollHeight-el.scrollTop-el.clientHeight<70;}} role="log" aria-label="Editing conversation">
  {!jobs.length&&<div className="agent-empty"><Scissors size={25}/><h3>Describe the next edit.</h3><p>Drag over empty timeline space to select clips. Shift-drag the ruler to select a time range.</p><p>Your selected context is fixed when you send. Changes appear in the timeline after the assistant commits them.</p></div>}
@@ -40,4 +43,4 @@ export function AgentChat({project,selectedIds,range,onRange,playhead,visible,on
  {error&&<p role="alert" className="agent-error">{error}</p>}
  <div className="agent-send-row"><small>{busy?(connection==='reconnecting'?'Reconnecting to edit…':'Context fixed for this request'):'⌘ Enter to send'}</small>{running?<button className="button compact" onClick={()=>void cancel(running)}><Square size={12}/>Cancel</button>:<button className="button primary compact" disabled={!ready||sending||!prompt.trim()||invalidSelection>0} onClick={()=>void send()}>{sending?<LoaderCircle size={13} className="spin"/>:<ArrowRight size={14}/>}Send</button>}</div></div>
  </aside>;
-}
+});

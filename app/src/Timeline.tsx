@@ -1,4 +1,4 @@
-import {useEffect,useMemo,useRef,useState} from 'react';
+import {memo,useEffect,useMemo,useRef,useState} from 'react';
 import {Camera,Clapperboard,Layers,Mic,Music,Type,ZoomIn,GripVertical,Plus,Trash2,ChevronDown} from './Icons';
 import type {Clip,Project,TrackKind} from '../shared/types';
 import {clipDuration,projectDuration} from '../shared/types';
@@ -9,6 +9,7 @@ import {rectangleBetween,itemsInRectangle,orderedTimeRange,type SelectionItem,ty
 import {addTimelineLayer,renameTimelineLayer,removeTimelineLayer,clipLayerKind,clipLayerRowId,moveClipsToLayer,timelineRows,type TimelineLayerRow,type LayerKind} from '../shared/timeline-layers';
 import {hasWaveform,waveformMediaKey,waveformBars,waveformHeight,timelineWaveformCache} from './timeline-waveform';
 import {moveRecordingScene} from './recording-scenes';
+import {usePlayheadTime,type Playhead} from './playhead';
 import {groupMove,hitLayerDrop,isVerticalLayerDrag,snapDistancePixels,snapTargets,snapTimelineDelta,timelinePointerDelta,type LayerDrop} from './timeline-drag';
 
 const trackIcons={overlay:Layers,screen:Clapperboard,camera:Camera,audio:Mic,music:Music};
@@ -24,7 +25,8 @@ function LayerRowControls({row,change}:{row:TimelineLayerRow;change:(fn:(project
   <button type="button" className="timeline-layer-remove" aria-label={`Remove ${row.name}`} title="Remove layer. Its clips move to their default rows; Undo restores the layer." onPointerDown={event=>event.preventDefault()} onClick={()=>change(project=>{removeTimelineLayer(project,row.id);})}><Trash2 size={12}/></button>
  </div>;
 }
-export function Timeline({project:p,time,zoom,selected,onSelect,onSeek,change,onDropMedia,tool,scrubbing,selectedIds,onSplit,onZoom,onSelectMany,selectedRange,onRange,onSceneAction,showWaveforms=true,onToggleWaveforms}:{showWaveforms?:boolean;onToggleWaveforms?:()=>void;onSceneAction?:(sceneId:string,kind:'auto-cut'|'visualize')=>void;onSelectMany:(ids:string[])=>void;selectedRange:{start:number;end:number}|null;onRange:(range:{start:number;end:number}|null)=>void;tool:'select'|'blade';scrubbing:boolean;selectedIds:ReadonlySet<string>;onSplit:(id:string,time:number)=>void;onZoom:(value:number)=>void;project:Project;time:number;zoom:number;selected:string|null;onSelect:(id:string,additive?:boolean)=>void;onSeek:(n:number)=>void;change:(f:(p:Project)=>void)=>void;onDropMedia:(id:string,track:TrackKind,time:number,layerId?:string)=>void}){
+export const Timeline=memo(function Timeline({project:p,playhead,zoom,selected,onSelect,onSeek,change,onDropMedia,tool,scrubbing,selectedIds,onSplit,onZoom,onSelectMany,selectedRange,onRange,onSceneAction,showWaveforms=true,onToggleWaveforms}:{showWaveforms?:boolean;onToggleWaveforms?:()=>void;onSceneAction?:(sceneId:string,kind:'auto-cut'|'visualize')=>void;onSelectMany:(ids:string[])=>void;selectedRange:{start:number;end:number}|null;onRange:(range:{start:number;end:number}|null)=>void;tool:'select'|'blade';scrubbing:boolean;selectedIds:ReadonlySet<string>;onSplit:(id:string,time:number)=>void;onZoom:(value:number)=>void;project:Project;playhead:Playhead;zoom:number;selected:string|null;onSelect:(id:string,additive?:boolean)=>void;onSeek:(n:number)=>void;change:(f:(p:Project)=>void)=>void;onDropMedia:(id:string,track:TrackKind,time:number,layerId?:string)=>void}){
+ const time=usePlayheadTime(playhead);
  const ref=useRef<HTMLDivElement>(null),[viewport,setViewport]=useState({left:0,top:0,width:1000}),[drag,setDrag]=useState<DragPreview|null>(null);
  const [addingLayer,setAddingLayer]=useState(false),[layerNotice,setLayerNotice]=useState(''),layerMenu=useRef<HTMLDivElement>(null),addLayerButton=useRef<HTMLButtonElement>(null);
  useEffect(()=>{setAddingLayer(false);setLayerNotice('');},[p.id]);
@@ -151,4 +153,4 @@ export function Timeline({project:p,time,zoom,selected,onSelect,onSeek,change,on
   {tool==='blade'&&hover!==null&&<div className="blade-guide" style={{left:hover*scale}}/>}
   <div className="playhead" style={{left:time*scale}}><span/></div>
  </div></div></div>;
-}
+});

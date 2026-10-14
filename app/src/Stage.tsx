@@ -1,4 +1,4 @@
-import {useEffect,useMemo,useRef,useState} from 'react';
+import {memo,useEffect,useMemo,useRef,useState} from 'react';
 import {Film,Plus} from './Icons';
 import type {Clip,Media,Project} from '../shared/types';
 import {clipDuration,clipEffectTiming} from '../shared/types';
@@ -11,6 +11,7 @@ import {clipCompositeOrder} from '../shared/timeline-layers';
 import {clipShadowCss} from '../shared/clip-shadow';
 import {canvasBackgroundStyle} from '../shared/canvas-background';
 import {zoomScaleAt} from '../shared/zoom-timing';
+import {usePlayheadTime,type Playhead} from './playhead';
 
 function ClipView({clip,media,time,playing,quality,onSelect,project:p,pixelScale,playbackRate}:{clip:Clip;media:Media;time:number;playing:boolean;quality:boolean;onSelect:()=>void;project:Project;pixelScale:number;playbackRate:number}){
  const ref=useRef<HTMLVideoElement|null>(null),audio=useRef<HTMLAudioElement|null>(null),backdrop=useRef<HTMLVideoElement|null>(null),[audioError,setAudioError]=useState(false);
@@ -38,7 +39,8 @@ function ClipView({clip,media,time,playing,quality,onSelect,project:p,pixelScale
  return <div className="stage-media" style={style} onClick={e=>{e.stopPropagation();onSelect();}}>{blurBackground&&(media.kind==='image'?<img className="vision-background" src={mediaUrl(media)} style={{...mediaStyle,filter:`blur(${18*pixelScale}px)`}} alt=""/>:<video className="vision-background" ref={backdrop} src={mediaUrl(media,quality)} muted playsInline preload="metadata" style={{...mediaStyle,filter:`blur(${18*pixelScale}px)`}}/>)}{media.kind==='image'?<img src={mediaUrl(media)} style={{...mediaStyle,...mask}} alt={media.name}/>:<video ref={ref} src={mediaUrl(media,quality)} playsInline preload="metadata" style={{...mediaStyle,...mask}}/>}{audioError&&<span role="status" className="vision-preview-status">Audio preview unavailable</span>}{tracking.error||tracking.loading?<span role="status" className="vision-preview-status">{tracking.error||'Preparing face tracking…'}</span>:null}{visionEnabled&&(playing||vision.loading||vision.error)&&<span className="vision-preview-status">{playing?'Background effects preview while paused':vision.loading?'Preparing subject preview…':vision.error}</span>}</div>;
 }
 
-export function Stage({project:p,time,playing,playbackRate=1,onSelect,onImport}:{project:Project;time:number;playing:boolean;playbackRate?:number;onSelect:(id:string)=>void;onImport:()=>void}){
+export const Stage=memo(function Stage({project:p,playhead,playing,playbackRate=1,onSelect,onImport}:{project:Project;playhead:Playhead;playing:boolean;playbackRate?:number;onSelect:(id:string)=>void;onImport:()=>void}){
+ const time=usePlayheadTime(playhead);
  const ref=useRef<HTMLDivElement>(null),wrapper=useRef<HTMLDivElement>(null),[width,setWidth]=useState(640),[dimensions,setDimensions]=useState({width:640,height:360});
  useEffect(()=>{if(!ref.current)return;const observer=new ResizeObserver(([entry])=>setWidth(entry.contentRect.width));observer.observe(ref.current);return()=>observer.disconnect();},[]);
  useEffect(()=>{const node=wrapper.current;if(!node)return;const resize=()=>{const style=getComputedStyle(node),availableWidth=node.clientWidth-parseFloat(style.paddingLeft)-parseFloat(style.paddingRight),availableHeight=node.clientHeight-parseFloat(style.paddingTop)-parseFloat(style.paddingBottom),ratio=p.canvas.width/p.canvas.height;const width=Math.max(0,Math.min(availableWidth,availableHeight*ratio));setDimensions({width,height:width/ratio});};const observer=new ResizeObserver(resize);observer.observe(node);resize();return()=>observer.disconnect();},[p.canvas.width,p.canvas.height]);
@@ -59,4 +61,4 @@ export function Stage({project:p,time,playing,playbackRate=1,onSelect,onImport}:
   {p.cursor.enabled&&point&&point.visible!==false&&<div className={`stage-cursor ${p.cursor.highlight?'has-highlight':''}`} style={{left:`${point.x*100}%`,top:`${point.y*100}%`,width:p.cursor.size*scale,color:p.cursor.color}}><svg viewBox="0 0 24 32"><path d="M2 1v27l7-7 6 10 5-3-6-10 10-1z" fill="currentColor" stroke="#171b27"/></svg></div>}
   {!p.clips.length&&<button className="stage-empty" style={pattern?{background:'transparent',color:'#f4f4f4'}:undefined} onClick={onImport}><div className="stage-empty-icon"><Film size={32}/></div><strong style={pattern?{color:'#f4f4f4'}:undefined}>Your story starts here</strong><span style={pattern?{color:'#b8b8b8'}:undefined}>Import a video, record a take, or add an element.</span><span className="button primary"><Plus size={14}/>Import media</span></button>}
  </div><div className="stage-caption-label"><span>{p.canvas.width} × {p.canvas.height}</span><span>{p.settings.previewQuality==='proxy'?'Adaptive preview':'Original quality'}</span></div></div>;
-}
+});
