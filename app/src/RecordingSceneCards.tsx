@@ -1,10 +1,11 @@
-import {useEffect,useLayoutEffect,useRef,useState} from 'react';
+import {memo,useEffect,useLayoutEffect,useMemo,useRef,useState} from 'react';
 import type {DragEvent,ReactNode} from 'react';
-import {clipDuration,type Project,type Scene} from '../shared/types';
+import type {Project,Scene} from '../shared/types';
 import type {SavedTake} from './recorded-takes';
-import {sceneTakes} from './scene-takes';
+import {sceneCardData,type ListedTake} from './recording-scene-data';
 import {AudioLines,ChevronDown,FolderOpen,GripVertical,Play,Plus,Scissors,Settings2,Trash2,Upload,WandSparkles} from './Icons';
 import './recording-scene-cards.css';
+export {listSceneTakes} from './recording-scene-data';
 
 type ActionResult=void|Promise<void>;
 export interface RecordingSceneCardsProps {
@@ -24,14 +25,8 @@ export interface RecordingSceneCardsProps {
  onAutoCut?:(sceneId:string)=>ActionResult;
  onVisualize?:(sceneId:string)=>ActionResult;
 }
-interface ListedTake {take:SavedTake;number:number;active:boolean;duration:number;}
 const dragType='application/x-sceneforge-record-card';
 type DragItem={projectId:string;kind:'scene'|'take';id:string;};
-export function listSceneTakes(project:Project,takes:SavedTake[],sceneId:string):ListedTake[]{
- const unique=new Map(takes.filter(t=>t.sceneId===sceneId).map(t=>[t.id,t]));
- const states=new Map(sceneTakes({...project,recordedTakes:[...unique.values()]},sceneId).map(t=>[t.id,t.activeClipCount>0]));
- return [...unique.values()].sort((a,b)=>(Date.parse(a.createdAt)||0)-(Date.parse(b.createdAt)||0)||a.id.localeCompare(b.id)).map((take,index)=>({take,number:index+1,active:states.get(take.id)||project.clips.some(c=>take.clipIds?.includes(c.id)),duration:Math.max(0,...take.media.map((m,i)=>Math.max(0,take.offsets[i]||0)+m.duration))})).reverse();
-}
 function durationLabel(value:number){const seconds=Math.max(0,Math.floor(value));return `${Math.floor(seconds/60)}:${String(seconds%60).padStart(2,'0')}`;}
 function CardMenu({label,children}:{label:string;children:ReactNode}){
  const node=useRef<HTMLDivElement>(null),[offset,setOffset]=useState({x:0,y:0});
@@ -54,9 +49,10 @@ function SceneName({scene,fallback,disabled,onRename}:{scene:Scene;fallback:stri
  const finish=()=>{const commit=!cancelled.current&&!disabled&&draft.trim()&&draft.trim()!==scene.name;cancelled.current=true;setEditing(false);if(commit)onRename(draft.trim());};
  return editing?<input ref={input} className="rsc-name-input" aria-label="Scene name" maxLength={200} value={draft} disabled={disabled} onChange={e=>setDraft(e.target.value)} onBlur={finish} onKeyDown={e=>{e.stopPropagation();if(e.key==='Enter'){e.preventDefault();finish();}if(e.key==='Escape'){e.preventDefault();cancelled.current=true;setEditing(false);}}}/>:<button type="button" className="rsc-scene-name" disabled={disabled} aria-label={`Rename ${scene.name||fallback}`} title="Rename scene" onClick={()=>{cancelled.current=false;setDraft(scene.name||'');setEditing(true);}}>{scene.name||fallback}</button>;
 }
-export function RecordingSceneCards(props:RecordingSceneCardsProps){
+/** Memoized: Recording passes stable callbacks, so preview, device and status updates do not re-render every card. */
+export const RecordingSceneCards=memo(function RecordingSceneCards(props:RecordingSceneCardsProps){
  const {project,takes,disabled}=props,root=useRef<HTMLDivElement>(null),[menu,setMenu]=useState<string|null>(null),[expanded,setExpanded]=useState<Record<string,boolean>>({}),[alt,setAlt]=useState(false),[error,setError]=useState(''),[busy,setBusy]=useState(false),[drag,setDrag]=useState<DragItem|null>(null),[drop,setDrop]=useState<string|null>(null);
- const alive=useRef(true),generation=useRef(0),locked=disabled||busy;
+ const alive=useRef(true),generation=useRef(0),locked=disabled||busy,cards=useMemo(()=>sceneCardData(project,takes),[project,takes]);
  useEffect(()=>{alive.current=true;generation.current++;setExpanded({});setMenu(null);setError('');setBusy(false);setAlt(false);setDrag(null);setDrop(null);return()=>{alive.current=false;generation.current++;};},[project.id]);
  useEffect(()=>{const key=(e:KeyboardEvent)=>{setAlt(e.altKey);if(e.key==='Escape'){setMenu(null);setDrag(null);setDrop(null);}};const blur=()=>setAlt(false);window.addEventListener('keydown',key);window.addEventListener('keyup',key);window.addEventListener('blur',blur);return()=>{window.removeEventListener('keydown',key);window.removeEventListener('keyup',key);window.removeEventListener('blur',blur);};},[]);
  useEffect(()=>{if(locked){setMenu(null);setDrag(null);setDrop(null);}},[locked]);
@@ -83,8 +79,8 @@ export function RecordingSceneCards(props:RecordingSceneCardsProps){
  return <div ref={root} className="recording-scene-cards" aria-label="Recording scenes" aria-busy={busy}>
   {error&&<div className="rsc-error" role="alert">{error}<button type="button" aria-label="Dismiss scene action error" onClick={()=>setError('')}>×</button></div>}
   {!project.scenes.length&&<div className="rsc-empty"><p>Add a scene to start recording.</p><button type="button" className="rsc-action" disabled={locked} onClick={()=>invoke(()=>props.onAddScene())}><Plus size={16}/>Add scene</button></div>}
-  {project.scenes.map((scene,index)=>{const all=listSceneTakes(project,takes,scene.id),active=all.filter(t=>t.active),archived=all.filter(t=>!t.active),showArchive=expanded[scene.id]??active.length===0,selected=props.selectedSceneId===scene.id,key=`scene:${scene.id}`;
-   const legacyFootage=project.clips.some(c=>!c.recordingTakeId&&!takes.some(t=>t.clipIds?.includes(c.id))&&c.track!=='music'&&c.start<scene.start+scene.duration&&c.start+clipDuration(c)>scene.start&&project.media.some(m=>m.id===c.mediaId&&(m.kind==='video'||m.kind==='audio'))),recorded=active.length>0||legacyFootage,recordOver=alt&&recorded;
+  {project.scenes.map((scene,index)=>{const {all,legacyFootage}=cards.get(scene.id)!,active=all.filter(t=>t.active),archived=all.filter(t=>!t.active),showArchive=expanded[scene.id]??active.length===0,selected=props.selectedSceneId===scene.id,key=`scene:${scene.id}`;
+   const recorded=active.length>0||legacyFootage,recordOver=alt&&recorded;
    return <div className="rsc-scene-container" key={`${project.id}:${scene.id}`}>
     <article className={`rsc-scene ${selected?'is-selected':''} ${drop===`before:${scene.id}`?'is-drop-before':''} ${index===project.scenes.length-1&&drop==='end'?'is-drop-after':''}`} data-scene-id={scene.id} aria-label={`${scene.name||`Scene ${index+1}`}, ${recorded?'recorded':'not recorded'}`} draggable={!!props.onMoveScene&&!locked} onDragStart={e=>{if(e.target!==e.currentTarget&&(e.target as Element).closest('button,input,[data-take-id]')){if(!(e.target as Element).closest('[data-take-id]'))e.preventDefault();return;}startDrag(e,{projectId:project.id,kind:'scene',id:scene.id});}} onDragEnd={endDrag} onDragOver={e=>{if(!locked&&props.onMoveScene&&drag?.kind==='scene'){e.preventDefault();e.dataTransfer.dropEffect='move';const beforeId=insertionBefore(e,index);setDrop(beforeId?`before:${beforeId}`:'end');}}} onDrop={e=>receiveScene(e,index)} onPointerDown={()=>{if(!locked&&props.selectedSceneId!==scene.id)invoke(()=>props.onSelectScene(scene.id));}} onFocus={()=>{if(!locked&&props.selectedSceneId!==scene.id)invoke(()=>props.onSelectScene(scene.id));}}>
      <header className="rsc-scene-heading">{props.onMoveScene&&<button type="button" className="rsc-scene-grip" draggable={!locked} disabled={locked} aria-label={`Reorder ${scene.name||`Scene ${index+1}`}`} title="Drag to reorder · Alt+↑ / Alt+↓" onClick={e=>e.stopPropagation()} onDragStart={e=>startDrag(e,{projectId:project.id,kind:'scene',id:scene.id})} onDragEnd={endDrag} onKeyDown={e=>{if(!e.altKey||!['ArrowUp','ArrowDown'].includes(e.key))return;e.preventDefault();e.stopPropagation();if(e.key==='ArrowUp'&&index>0)invoke(()=>props.onMoveScene!(scene.id,project.scenes[index-1].id));if(e.key==='ArrowDown'&&index<project.scenes.length-1)invoke(()=>props.onMoveScene!(scene.id,project.scenes[index+2]?.id));}}><GripVertical size={15}/></button>}<span className={`rsc-status ${recorded?'is-complete':''}`} title={recorded?'Recorded':'Not recorded'} aria-hidden="true"/><SceneName scene={scene} fallback={`Scene ${index+1}`} disabled={locked} onRename={name=>invoke(()=>props.onRenameScene(scene.id,name))}/><div data-rsc-menu className="rsc-scene-menu-anchor">{menuButton(key,`Settings for ${scene.name||`Scene ${index+1}`}`)}{menu===key&&<CardMenu label="Scene actions">
@@ -112,5 +108,5 @@ export function RecordingSceneCards(props:RecordingSceneCardsProps){
    </div>;
   })}
  </div>;
-}
+});
 export default RecordingSceneCards;
