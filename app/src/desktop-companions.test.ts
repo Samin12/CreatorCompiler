@@ -118,3 +118,11 @@ test('border pre-warmed while capture starts is adopted on started, re-armed cli
  m.prewarm();const last=h.windows.at(-1);m.clear();assert.equal(loading.dead,true);assert.equal(last.dead,true);
  m.prewarm();const failed=h.windows.at(-1);failed.reject(Error('load failed'));await tick();assert.equal(failed.dead,true);m.update(recording('three'));assert.equal(h.windows.at(-1)!==failed,true);
  }finally{m.clear()}});
+
+test('HUD reports each editor hide and show it makes, since macOS does not emit hide for BrowserWindow.hide()',async()=>{const h=harness(),reports:boolean[]=[];(h.main as any).visible=true;const hide=h.main.hide,show=h.main.show;h.main.hide=function(){(this as any).visible=false;hide.call(this);};h.main.show=function(){(this as any).visible=true;show.call(this);};
+ const m=createRecordingHud({...h.opts,onMainVisibility:()=>reports.push((h.main as any).visible)} as any);try{
+  const one=await opened(h);assert.deepEqual(reports,[false]);h.handlers.get('recording-hud-command')!(h.hudEvent(),'show-editor');assert.deepEqual(reports,[false,true]);
+  h.call('update-recording-hud',{status:'saving'},one.id);assert.deepEqual(reports,[false,true],'an editor that is already visible is not reported again');
+  const next=await opened(h);h.call('update-recording-hud',{status:'saving'},next.id);assert.deepEqual(reports,[false,true,false,true]);
+ }finally{m.dispose();}
+});

@@ -156,7 +156,7 @@ app.whenReady().then(async()=>{
  ipcMain.handle('choose-capture-source',(e,options)=>captureManager.choose(e,options));
  ipcMain.handle('restore-capture-source',(e,selection)=>captureManager.restore(e,selection));
  ipcMain.handle('cancel-capture-selection',(e,token)=>captureManager.cancel(e,token));
- recordingHud=createRecordingHud({BrowserWindow,ipcMain,screen,getMainWindow:()=>mainWindow,verifyMain:verifyDesktopSender});
+ recordingHud=createRecordingHud({BrowserWindow,ipcMain,screen,getMainWindow:()=>mainWindow,verifyMain:verifyDesktopSender,onMainVisibility:publishMainVisibility});
  captureBorder=createCaptureBorder({BrowserWindow});
  nativeRecording=createNativeRecordingManager({ipcMain,getMainWindow:()=>mainWindow,origin:base,dataDir:path.join(app.getPath('userData'),'studio'),onState:event=>captureBorder.update(event),onPrepare:event=>{if(event.recordVideo)captureBorder.prewarm();}});
  const verify=(e)=>{if(!trusted(e.senderFrame.url))throw new Error('Untrusted window');};

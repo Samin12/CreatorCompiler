@@ -16,16 +16,18 @@ function cleanState(value,initial=false){
  return out;
 }
 
-function createRecordingHud({BrowserWindow,ipcMain,screen,getMainWindow,verifyMain}){
+// Electron does not emit 'hide' for BrowserWindow.hide() on macOS, so the HUD reports
+// each editor hide/show it makes through onMainVisibility instead of relying on that event.
+function createRecordingHud({BrowserWindow,ipcMain,screen,getMainWindow,verifyMain,onMainVisibility=()=>{}}){
  let hud=null,state=null,hiddenMain=false,ready=null,ending=false,sessionId=null,synced=false;
  const documentURL=pathToFileURL(path.join(__dirname,'recording-hud.html')).href;
  const alive=w=>Boolean(w&&!w.isDestroyed());
  function verifyHud(e){if(!alive(hud)||e.sender!==hud.webContents||e.senderFrame!==hud.webContents.mainFrame||e.senderFrame.url!==documentURL)throw new Error('Untrusted recording preview.');}
- function restore(){const main=getMainWindow();if(hiddenMain&&alive(main)){main.show();main.focus();}hiddenMain=false;}
+ function restore(){const main=getMainWindow();if(hiddenMain&&alive(main)){main.show();main.focus();hiddenMain=false;onMainVisibility();}hiddenMain=false;}
  function end({restoreMain=true,id}={}){if(id&&id!==sessionId)return;ending=true;if(restoreMain)restore();else hiddenMain=false;if(alive(hud))hud.destroy();hud=null;state=null;ready=null;sessionId=null;synced=false;ending=false;}
  // The loaded HUD gets the full state once, then only changed fields (it merges);
  // the script is not re-sent with every clock tick.
- function publish(patch){if(!state||!alive(hud))return;if(synced||!patch){hud.webContents.send('recording-hud-state',synced&&patch?patch:state);synced=true;}const main=getMainWindow();if(!hiddenMain&&state.hideMain&&['recording','paused'].includes(state.status)&&alive(main)){main.hide();hiddenMain=true;}if(['saving','idle'].includes(state.status))restore();}
+ function publish(patch){if(!state||!alive(hud))return;if(synced||!patch){hud.webContents.send('recording-hud-state',synced&&patch?patch:state);synced=true;}const main=getMainWindow();if(!hiddenMain&&state.hideMain&&['recording','paused'].includes(state.status)&&alive(main)){main.hide();hiddenMain=true;onMainVisibility();}if(['saving','idle'].includes(state.status))restore();}
  async function begin(value){
   const next=cleanState(value,true);if(alive(hud))end();sessionId=randomUUID();synced=false;const id=sessionId;
   state=next;const main=getMainWindow(),display=screen.getDisplayMatching(alive(main)?main.getBounds():screen.getPrimaryDisplay().bounds),area=display.workArea;
@@ -47,7 +49,7 @@ function createRecordingHud({BrowserWindow,ipcMain,screen,getMainWindow,verifyMa
   'update-recording-hud':(e,value,id)=>{verifyMain(e);const patch=cleanState(value);if(state&&(!id||id===sessionId)){state={...state,...patch};publish(patch);}return {visible:(!id||id===sessionId)&&alive(hud)};},
   'end-recording-hud':(e,id)=>{verifyMain(e);end({id});},
   'recording-hud-read':e=>{verifyHud(e);return state;},
-  'recording-hud-command':(e,command)=>{verifyHud(e);if(!COMMANDS.has(command))throw new Error('Unknown recording action.');const main=getMainWindow();if(command==='show-editor'){if(state)state.hideMain=false;if(alive(main)){main.show();main.focus();}return;}if(alive(main))main.webContents.send('recording-hud-command',command);}
+  'recording-hud-command':(e,command)=>{verifyHud(e);if(!COMMANDS.has(command))throw new Error('Unknown recording action.');const main=getMainWindow();if(command==='show-editor'){if(state)state.hideMain=false;if(alive(main)){main.show();main.focus();hiddenMain=false;onMainVisibility();}return;}if(alive(main))main.webContents.send('recording-hud-command',command);}
  };
  for(const [name,handler]of Object.entries(handlers))ipcMain.handle(name,handler);
  // The HUD opens its own live camera preview: video only, from its exact document.
