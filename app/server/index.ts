@@ -22,10 +22,19 @@ import {planNewBorumiProject,exportNewBorumiProject} from './borumi-new-project.
 import {isAudioRole,type Project,type ExportOptions} from '../shared/types.js';
 
 const PORT=Number(process.env.SCENEFORGE_PORT||4174);
+// The memoized media probe (including a VideoToolbox test encode) overlaps boot instead of delaying the first health check.
+void media.getCapabilities();
 await storage.initStorage();
 const exportsStore=new ExportStore(path.join(storage.DATA_DIR,'export-history'),storage.OUTPUT_DIR,{start:media.startExport,cancel:media.cancelJob});
 await exportsStore.init();
-storage.projectEvents.on('project',event=>{if(event.action==='saved')void storage.readProject(event.id).then(automation.observe).catch(()=>{});});
+// Observers receive the committed in-memory project after the response instead of re-reading the file. Reading a revision
+// they already saw tells them nothing new, so reads skip observing until a job event or settings change could alter the outcome.
+const observed=new Map<string,string>();
+const sawRevision=(id:string,revision?:string)=>{observed.delete(id);if(revision){observed.set(id,revision);if(observed.size>32)observed.delete(observed.keys().next().value!);}};
+storage.projectEvents.on('project',(event:storage.ProjectEvent)=>sawRevision(event.id,event.action==='saved'?event.revision:undefined));
+storage.projectEvents.on('committed',(p:Project)=>setImmediate(()=>{try{automation.observe(p);}catch{}}));
+automation.events.on('job',(job:{projectId:string})=>observed.delete(job.projectId));
+void recordings.cleanupRecordings();
 const app=express();
 app.disable('x-powered-by');
 app.use((req,res,next)=>{
@@ -39,6 +48,7 @@ const param=(req:Request,name='id')=>String(req.params[name]);
 const reviewedRevision=(req:Request)=>{const value=req.headers['if-match'];if(typeof value!=='string'||!/^(?:"[0-9a-f]{64}"|[0-9a-f]{64})$/.test(value))throw Object.assign(Error('A reviewed project revision is required. Refresh and review this action again.'),{status:409});return value.replaceAll('"','');};
 const capabilities=async()=>({...await media.getCapabilities(),transcription:await ai.transcriptionCapabilities(),vision:await getVisionCapabilities(),application:'SceneForge',mcp:{command:process.env.SCENEFORGE_MCP_COMMAND||path.join(os.homedir(),'Applications/SceneForge.app/Contents/MacOS/sceneforge-mcp'),args:[],toolCount:toolDefinitions.length},version:'0.1.0'});
 app.get('/api/health',route(async(_,res)=>res.json({...await capabilities(),dataDir:storage.DATA_DIR})));
+app.get('/api/ready',(_req,res)=>{res.json({application:'SceneForge',version:'0.1.0'});});
 app.get('/api/capabilities',route(async(_,res)=>res.json(await capabilities())));
 app.get('/api/events',(_req,res)=>{
  res.setHeader('Content-Type','text/event-stream');res.setHeader('Cache-Control','no-cache, no-transform');res.setHeader('Connection','keep-alive');res.flushHeaders();
@@ -58,14 +68,21 @@ app.get('/api/projects',route(async(_,res)=>res.json(await storage.listProjects(
 app.get('/api/trash',route(async(_,res)=>res.json({items:await storage.listTrash()})));
 app.post('/api/trash/:id/restore',route(async(req,res)=>res.json(await storage.restoreTrash(param(req),reviewedRevision(req),{asCopy:req.body.asCopy===true}))));
 app.post('/api/projects',route(async(req,res)=>res.json(await storage.newProject(req.body.name))));
-app.get('/api/projects/:id',route(async(req,res)=>{const p=await storage.readProject(param(req));automation.observe(p);res.setHeader('ETag','"'+storage.revision(p)+'"');return res.json(p);}));
+app.get('/api/projects/:id',route(async(req,res)=>{const id=param(req),state=await storage.projectState(id);res.setHeader('ETag','"'+state.revision+'"');res.type('json').send(state.json);if(observed.get(id)!==state.revision){sawRevision(id,state.revision);setImmediate(()=>{try{automation.observe(state.project??JSON.parse(state.json));}catch{}});}}));
 const inspectedImages=new Map<string,string>();
 app.post('/api/projects/:id/inspect',route(async(req,res)=>{
  const frames=await media.inspectFrames(await storage.readProject(param(req)),req.body.times,storage.CACHE_DIR,{width:req.body.width});
  return res.json({frames:frames.map(frame=>{const token=createHash('sha256').update(frame.path).digest('hex');inspectedImages.set(token,frame.path);return {time:frame.time,requestedTime:frame.requestedTime,width:frame.width,height:frame.height,url:`/api/inspection-images/${token}`};})});
 }));
 app.get('/api/inspection-images/:id',route((req,res)=>{const file=inspectedImages.get(param(req));if(!file)return res.status(404).json({error:'Inspect the timeline again to refresh this frame.'});return res.sendFile(file);}));
-app.put('/api/projects/:id',route(async(req,res)=>{if(req.body.id!==param(req))throw new Error('Project ID mismatch');const p=await storage.saveProject(req.body,{expectedRevision:req.headers['if-match']?.replaceAll('"',''),checkpoint:req.headers['x-sceneforge-checkpoint']==='1'});res.setHeader('ETag','"'+storage.revision(p)+'"');return res.json(p);}));
+const prefersMinimal=(req:Request)=>/(?:^|,)\s*return\s*=\s*"?minimal"?\s*(?:[;,]|$)/i.test(String(req.headers.prefer??''));
+app.put('/api/projects/:id',route(async(req,res)=>{
+ if(req.body.id!==param(req))throw new Error('Project ID mismatch');
+ const saved=await storage.commitProject(req.body,{expectedRevision:req.headers['if-match']?.replaceAll('"',''),checkpoint:req.headers['x-sceneforge-checkpoint']==='1',clone:false});res.setHeader('ETag','"'+saved.revision+'"');
+ // The stored object is the request body itself with only updatedAt assigned, so the client can adopt that one field exactly.
+ if(prefersMinimal(req)&&saved.project===req.body){res.setHeader('Preference-Applied','return=minimal');return res.json({minimal:true,id:saved.project.id,updatedAt:saved.project.updatedAt});}
+ return res.type('json').send(saved.json);
+}));
 app.delete('/api/projects/:id',route(async(req,res)=>{await storage.trashProject(param(req));return res.json({ok:true});}));
 app.post('/api/projects/:id/duplicate',route(async(req,res)=>res.json(await storage.duplicateProject(param(req)))));
 app.get('/api/projects/:id/history',route(async(req,res)=>res.json(await storage.history(param(req)))));
@@ -75,7 +92,7 @@ app.post('/api/projects/:id/media-recovery/plan',route(async(req,res)=>res.json(
 app.post('/api/projects/:id/media-recovery/apply',route(async(req,res)=>res.json(await mediaRecovery.applyRelink(param(req),req.body.planId,reviewedRevision(req),req.body.acknowledgements))));
 app.post('/api/projects/:id/media-recovery/undo',route(async(req,res)=>res.json(await mediaRecovery.undoRelink(param(req),req.body.planId,reviewedRevision(req)))));
 app.post('/api/projects/:id/checkpoint',route(async(req,res)=>res.json(await storage.saveProject(await storage.readProject(param(req)),{checkpoint:true}))));
-app.post('/api/media/import',route(async(req,res)=>{if(!Array.isArray(req.body.paths)||req.body.paths.length>100)throw new Error('Provide up to 100 paths');if(req.body.audioRole!==undefined&&!isAudioRole(req.body.audioRole))throw new Error('Invalid media audio role');const result=[];for(const file of req.body.paths){if(typeof file!=='string'||!path.isAbsolute(file))throw new Error('Expected absolute local media path');const m=await media.probeMedia(file,storage.CACHE_DIR);if(req.body.audioRole!==undefined)m.audioRole=req.body.audioRole;result.push(await storage.registerMedia(m));}return res.json(result);}));
+app.post('/api/media/import',route(async(req,res)=>{if(!Array.isArray(req.body.paths)||req.body.paths.length>100)throw new Error('Provide up to 100 paths');if(req.body.audioRole!==undefined&&!isAudioRole(req.body.audioRole))throw new Error('Invalid media audio role');const result=[];for(const file of req.body.paths){if(typeof file!=='string'||!path.isAbsolute(file))throw new Error('Expected absolute local media path');const m=await media.probeMedia(file,storage.CACHE_DIR);if(req.body.audioRole!==undefined)m.audioRole=req.body.audioRole;result.push(await storage.registerMedia(m));}if(req.body.audioRole!==undefined)result.forEach(recordings.warmTakeWaveform);return res.json(result);}));
 const upload=multer({storage:multer.diskStorage({destination:storage.UPLOAD_DIR,filename:(_,file,cb)=>cb(null,randomUUID()+path.extname(file.originalname).replace(/[^a-zA-Z0-9.]/g,'').slice(0,12))}),limits:{files:100,fileSize:20*1024*1024*1024}});
 app.post('/api/media/upload',upload.array('files',100),route(async(req,res)=>{const result=[];for(const file of req.files as Express.Multer.File[]){try{const m=await media.probeMedia(file.path,storage.CACHE_DIR);m.name=file.originalname;result.push(await storage.registerMedia(m));}catch(e){await fs.rm(file.path,{force:true});throw e;}}return res.json(result);}));
 app.get('/api/media/:id/file',route(async(req,res)=>res.sendFile((await storage.readMedia(param(req))).path)));
@@ -86,8 +103,11 @@ app.get('/api/media/:id/face-track',route(async(req,res)=>{
  const controller=new AbortController();req.once('aborted',()=>controller.abort());res.once('close',()=>{if(!res.writableEnded)controller.abort();});
  return res.json(await getFaceTrack(await storage.readMedia(param(req)),{start,end,signal:controller.signal}));
 }));
-app.get('/api/media/:id/vision',route(async(req,res)=>{const result=await visionPreview(await storage.readMedia(param(req)),Number(req.query.time)||0,storage.CACHE_DIR);return res.json({time:result.time,width:result.width,height:result.height,face:result.face,maskUrl:`/api/media/${encodeURIComponent(param(req))}/vision-mask.png?time=${result.time}`});}));
-app.get('/api/media/:id/vision-mask.png',route(async(req,res)=>{const result=await visionPreview(await storage.readMedia(param(req)),Number(req.query.time)||0,storage.CACHE_DIR);return res.sendFile(result.maskPath);}));
+const requestSignal=(req:Request,res:Response)=>{const controller=new AbortController();req.once('aborted',()=>controller.abort());res.once('close',()=>{if(!res.writableEnded)controller.abort();});return controller.signal;};
+// Scrubbing abandons previews constantly; once the client has gone there is no one to answer and the cancellation is not an error.
+const cancellable=(fn:(req:Request,res:Response,signal:AbortSignal)=>Promise<unknown>)=>(req:Request,res:Response,next:NextFunction)=>{const signal=requestSignal(req,res);fn(req,res,signal).catch(error=>{if(!signal.aborted)next(error);});};
+app.get('/api/media/:id/vision',cancellable(async(req,res,signal)=>{const result=await visionPreview(await storage.readMedia(param(req)),Number(req.query.time)||0,storage.CACHE_DIR,signal);return res.json({time:result.time,width:result.width,height:result.height,face:result.face,maskUrl:`/api/media/${encodeURIComponent(param(req))}/vision-mask.png?time=${result.time}`});}));
+app.get('/api/media/:id/vision-mask.png',cancellable(async(req,res,signal)=>{const result=await visionPreview(await storage.readMedia(param(req)),Number(req.query.time)||0,storage.CACHE_DIR,signal);return res.sendFile(result.maskPath);}));
 app.post('/api/media/:id/proxy',route(async(req,res)=>res.json(media.startProxy(await storage.readMedia(param(req)),storage.CACHE_DIR))));
 app.get('/api/media/:id/proxy',route(async(req,res)=>{const m=await storage.readMedia(param(req));return res.sendFile(await media.proxyFile(m,storage.CACHE_DIR)||m.path);}));
 app.post('/api/import/borumi',route(async(req,res)=>{const p=await importBorumi(req.body.path,{roundtripDirectory:path.join(storage.DATA_DIR,'borumi-snapshots')});for(const m of p.media)await storage.registerMedia(m);return res.json(await storage.saveProject(p));}));
@@ -129,17 +149,20 @@ app.get('/api/jobs/:id',route(async(req,res)=>{try{return res.json(await exports
 app.delete('/api/jobs/:id',route(async(req,res)=>{try{return res.json(await exportsStore.cancel(param(req)));}catch(e){if((e as {status?:number}).status!==404)throw e;}const j=media.cancelJob(param(req));return res.status(j?200:404).json(j||{error:'Job not found'});}));
 app.get('/api/jobs/:id/download',downloadExport);
 app.get('/api/ai/settings',route(async(_,res)=>res.json(storage.redactSettings(await storage.readAISettings()))));
+// Follow mode posts a batch every few seconds while recording; the joined script is reparsed only when the committed revision changes.
+const followScripts=new Map<string,{revision:string;script:string}>();
 app.post('/api/ai/voice-follow',express.raw({type:'audio/wav',limit:'350kb'}),route(async(req,res)=>{
- const project=await storage.readProject(String(req.query.projectId));
- return res.json(await followSpeech(req.body,project.scenes.map(s=>s.script).join('\n\n'),Number(req.query.cursor)||0,await storage.readAISettings(),storage.CACHE_DIR));
+ const id=String(req.query.projectId),state=await storage.projectState(id);let cached=followScripts.get(id);
+ if(cached?.revision!==state.revision){cached={revision:state.revision,script:(state.project??JSON.parse(state.json) as Project).scenes.map(s=>s.script).join('\n\n')};followScripts.delete(id);followScripts.set(id,cached);if(followScripts.size>8)followScripts.delete(followScripts.keys().next().value!);}
+ return res.json(await followSpeech(req.body,cached.script,Number(req.query.cursor)||0,await storage.readAISettings(),storage.CACHE_DIR));
 }));
 app.put('/api/ai/settings',route(async(req,res)=>res.json(await storage.saveAISettings(req.body))));
 app.post('/api/ai/transcribe',route(async(req,res)=>{const p=await storage.readProject(req.body.projectId);const m=p.media.find(m=>m.id===req.body.mediaId);if(!m)throw new Error('Media is not in this project');return res.json(await ai.transcribe(m,await storage.readAISettings(),storage.CACHE_DIR));}));
 app.post('/api/ai/analyze',route(async(req,res)=>{if(!['silence','fillers','script'].includes(req.body.kind))throw new Error('Unknown analysis kind');return res.json(await ai.analyze(await storage.readProject(req.body.projectId),req.body.kind,await storage.readAISettings(),req.body.prompt));}));
 const dist=path.resolve(import.meta.dirname,'../dist');
 app.get('/api/automation/settings',route(async(_,res)=>res.json(await automation.getSettings())));
-app.put('/api/automation/settings',route(async(req,res)=>res.json(await automation.updateSettings(req.body))));
-app.get('/api/projects/:id/automation',route(async(req,res)=>{await storage.readProject(param(req));return res.json({jobs:await automation.list(param(req))});}));
+app.put('/api/automation/settings',route(async(req,res)=>{const settings=await automation.updateSettings(req.body);observed.clear();return res.json(settings);}));
+app.get('/api/projects/:id/automation',route(async(req,res)=>{await storage.projectExists(param(req));return res.json({jobs:await automation.list(param(req))});}));
 app.post('/api/projects/:id/transcribe',route(async(req,res)=>res.json(await automation.queueTranscription(param(req),{force:req.body.force===true}))));
 app.post('/api/projects/:id/quick-action',route(async(req,res)=>res.json(await automation.quickAction(param(req),req.body))));
 app.get('/api/automation/:id',route(async(req,res)=>res.json(await automation.get(param(req)))));

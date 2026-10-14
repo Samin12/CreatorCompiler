@@ -31,3 +31,46 @@ test('audio provenance survives unfinished recovery, finalization, catalog rerea
  }
  await assert.rejects(r.createRecording('bad','audio/webm','filename-inference' as any),/audio role/);
 });
+test('fragmented MP4 chunks finalize to a front-indexed take.mp4 with unchanged frames, then release capture and chunks',async()=>{
+ const {captureActivity}=await import('./capture-activity.js'),{readdir}=await import('node:fs/promises'),run=promisify(execFile),input=path.join(folder,'fragmented.mp4');
+ await run('ffmpeg',['-v','error','-f','lavfi','-i','testsrc2=size=160x90:rate=15:duration=1','-f','lavfi','-i','sine=frequency=440:duration=1','-c:v','libx264','-pix_fmt','yuv420p','-g','15','-c:a','libopus','-movflags','frag_keyframe+empty_moov+default_base_moof','-f','mp4','-y',input]);
+ const data=await readFile(input),third=Math.floor(data.length/3);const session=await r.createRecording('Camera take','video/mp4;codecs=avc1.640028');assert.ok(captureActivity.remaining()>0,'an open browser capture defers background work');
+ for(const [index,part] of [data.subarray(0,third),data.subarray(third,2*third),data.subarray(2*third)].entries())await r.appendRecording(session.id,index,part);
+ const media=await r.finishRecording(session.id);assert.match(media.path,/take\.mp4$/);assert.equal(media.kind,'video');assert.equal(media.hasAudio,true);assert.ok(media.duration>.9&&media.duration<1.2);
+ const bytes=await readFile(media.path);assert.ok(bytes.indexOf('moov')>0&&bytes.indexOf('moov')<bytes.indexOf('mdat'),'faststart index precedes media data');
+ const frames=async(file:string)=>(await run('ffmpeg',['-v','error','-i',file,'-map','0:v','-fps_mode','passthrough','-f','framemd5','-'])).stdout.split('\n').filter(l=>l&&!l.startsWith('#')).map(l=>l.split(',').at(-1));
+ assert.deepEqual(await frames(media.path),await frames(input));assert.ok(captureActivity.remaining()<=4000,'finishing closes the capture lease');
+ for(let i=0;i<100&&(await readdir(path.dirname(media.path))).some(f=>f.endsWith('.chunk'));i++)await new Promise(resolve=>setTimeout(resolve,20));
+ assert.equal((await readdir(path.dirname(media.path))).some(f=>f.endsWith('.chunk')),false);assert.equal((await r.finishRecording(session.id)).path,media.path);
+ await assert.rejects(r.createRecording('Matroska','video/x-matroska;codecs=avc1'),/WebM or MP4/);
+});
+test('chunks stream through cat in order in several batches, a missing chunk fails, and startup cleanup removes only completed leftovers',async()=>{
+ const {writeFile,readdir}=await import('node:fs/promises');const dir=await mkdtemp(path.join(folder,'stream-')),run=promisify(execFile),source=path.join(dir,'source.webm');
+ await run('ffmpeg',['-v','error','-f','lavfi','-i','testsrc2=size=160x90:rate=15:duration=1','-c:v','libvpx','-live','1','-y',source]);const data=await readFile(source),size=Math.ceil(data.length/5),chunks:string[]=[];
+ for(let i=0;i*size<data.length;i++){const name=String(i).padStart(9,'0')+'.chunk';await writeFile(path.join(dir,name),data.subarray(i*size,(i+1)*size));chunks.push(name);}
+ await r.remuxChunks(dir,chunks,['-f','webm','joined.webm'],2);const md5=async(file:string)=>(await run('ffmpeg',['-v','error','-i',file,'-map','0:v','-f','md5','-'])).stdout;assert.equal(await md5(path.join(dir,'joined.webm')),await md5(source));
+ await assert.rejects(r.remuxChunks(dir,[...chunks,'000000099.chunk'],['-f','webm','broken.webm']));
+ const many=await mkdtemp(path.join(folder,'many-')),small=Math.ceil(data.length/300),names:string[]=[];for(let i=0;i*small<data.length;i++){const name=String(i).padStart(9,'0')+'.chunk';await writeFile(path.join(many,name),data.subarray(i*small,(i+1)*small));names.push(name);}
+ const code=`import {remuxChunks} from './server/recordings.ts';await remuxChunks(${JSON.stringify(many)},${JSON.stringify(names)},['-f','webm','joined.webm']);`;
+ await run('/bin/sh',['-c','ulimit -n 128 && exec "$0" "$@"',process.execPath,'--import','tsx','--input-type=module','-e',code],{cwd:path.resolve(import.meta.dirname,'..'),env:{...process.env,SCENEFORGE_DATA_DIR:folder}});
+ assert.equal(await md5(path.join(many,'joined.webm')),await md5(source),'hundreds of chunks finalize under a low descriptor limit');
+ const input=path.join(folder,'cleanup.webm');await promisify(execFile)('ffmpeg',['-v','error','-f','lavfi','-i','sine=frequency=440:duration=0.3','-c:a','libopus','-y',input]);const bytes=await readFile(input);
+ const waves=async()=>(await readdir(s.CACHE_DIR)).filter(f=>f.endsWith('.wave-v2.json')).length;await r.waveformWarmup();const before=await waves();
+ const done=await r.createRecording('Done','audio/webm'),open=await r.createRecording('Open','audio/webm');await r.appendRecording(done.id,0,bytes);await r.appendRecording(open.id,0,bytes);const media=await r.finishRecording(done.id);
+ await new Promise(resolve=>setTimeout(resolve,300));assert.equal(await waves(),before,'the review waveform waits while another capture is open');
+ const stray=path.join(path.dirname(media.path),'000000000.chunk');await writeFile(stray,'left behind');await r.cleanupRecordings();
+ await assert.rejects(readFile(stray));assert.equal((await r.recoverableRecordings()).find(x=>x.id===open.id)?.chunks,1);await r.finishRecording(open.id);
+ await r.waveformWarmup();assert.equal(await waves(),before+2,'audio take review waveforms are cached in the background once no capture is open');
+});
+test('a countdown session holds a short lease, a chunk queued before finish cannot reopen it, and startup deletes only abandoned empty sessions',async()=>{
+ const {captureActivity}=await import('./capture-activity.js'),{utimes,readdir,writeFile}=await import('node:fs/promises'),input=path.join(folder,'lease.webm');
+ await promisify(execFile)('ffmpeg',['-v','error','-f','lavfi','-i','sine=frequency=440:duration=0.4','-c:a','libopus','-y',input]);const bytes=await readFile(input),half=Math.floor(bytes.length/2);
+ assert.equal(captureActivity.remaining(false),0);const take=await r.createRecording('Countdown','audio/webm'),lease=captureActivity.remaining();assert.ok(lease>0&&lease<=10_000,'a session without chunks holds only a short lease');
+ await r.appendRecording(take.id,0,bytes.subarray(0,half));assert.ok(captureActivity.remaining()>10_000,'the first chunk renews the full lease');
+ const late=r.appendRecording(take.id,1,bytes.subarray(half)),media=await r.finishRecording(take.id);await late;assert.ok(media.duration>.3);assert.equal(captureActivity.remaining(false),0,'finishing after queued chunks leaves no lease open');
+ const cancelled=await r.createRecording('Cancelled countdown','audio/webm'),fresh=await r.createRecording('Counting down','audio/webm'),crashed=await r.createRecording('Interrupted take','audio/webm');await r.appendRecording(crashed.id,0,bytes);
+ const dir=(id:string)=>path.join(s.UPLOAD_DIR,'recordings',id),old=new Date(Date.now()-10*60*1000);for(const id of [cancelled.id,crashed.id])await utimes(path.join(dir(id),'metadata.json'),old,old);await writeFile(path.join(dir(cancelled.id),'000000000.chunk.tmp'),'interrupted');
+ await r.cleanupRecordings();await assert.rejects(readdir(dir(cancelled.id)),'an old session that never received a chunk is deleted');
+ assert.deepEqual(await readdir(dir(fresh.id)),['metadata.json'],'a countdown still in progress is kept');assert.equal((await r.recoverableRecordings()).find(x=>x.id===crashed.id)?.chunks,1,'an old session with chunks stays recoverable');
+ for(const id of [cancelled.id,fresh.id])await assert.rejects(r.finishRecording(id));await r.finishRecording(crashed.id);await r.waveformWarmup();assert.equal(captureActivity.remaining(false),0);
+});

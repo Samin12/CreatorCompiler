@@ -52,6 +52,43 @@ test('local transcription cancellation terminates the actual worker and removes 
  }finally{await rm(dir,{recursive:true,force:true});}
 });
 
+test('automatic background transcription runs in place at background QoS with two threads and stays cancellable',async()=>{
+ const {writeFile,readFile}=await import('node:fs/promises');const {transcribe}=await import('./ai.js');
+ const dir=await mkdtemp(path.join(tmpdir(),'sceneforge-transcribe-background-')),file=path.join(dir,'tone.wav'),worker=path.join(dir,'whisper'),model=path.join(dir,'model.bin'),report=path.join(dir,'worker.json');
+ try{
+  await promisify(execFile)(process.env.SCENEFORGE_FFMPEG||'ffmpeg',['-v','error','-y','-f','lavfi','-i','sine=frequency=440:duration=1',file]);await writeFile(model,'fixture');
+  await writeFile(worker,`#!${process.execPath}\nrequire('fs').writeFileSync(${JSON.stringify(report)},JSON.stringify({pid:process.pid,ppid:process.ppid,args:process.argv.slice(2)}));setInterval(()=>{},1000);`,{mode:0o700});
+  const abort=new AbortController(),promise=transcribe({id:'tone',name:'tone',path:file,kind:'audio',duration:1,width:0,height:0},{provider:'local',baseUrl:'',model,localCommand:worker,language:'en'},dir,{signal:abort.signal,background:true});
+  for(let i=0;i<150;i++){if(await readFile(report,'utf8').catch(()=>''))break;await new Promise(r=>setTimeout(r,20));}
+  const seen=JSON.parse(await readFile(report,'utf8'));assert.equal(seen.args[seen.args.indexOf('-t')+1],'2');
+  if(process.platform==='darwin')assert.equal(seen.ppid,process.pid,'taskpolicy replaces itself with the worker');
+  abort.abort();await assert.rejects(promise,/cancelled/);assert.throws(()=>process.kill(seen.pid,0));
+ }finally{await rm(dir,{recursive:true,force:true});}
+});
+test('a held background worker is stopped while a capture is open, resumes after, and still cancels while stopped',{skip:process.platform==='win32'},async()=>{
+ const {writeFile,readFile}=await import('node:fs/promises');const {transcribe}=await import('./ai.js');const {createCaptureActivity}=await import('./capture-activity.js');
+ const dir=await mkdtemp(path.join(tmpdir(),'sceneforge-transcribe-hold-')),file=path.join(dir,'tone.wav'),worker=path.join(dir,'whisper'),model=path.join(dir,'model.bin'),ticks=path.join(dir,'ticks'),hold=createCaptureActivity({staleMs:60000,settleMs:0});
+ const count=async()=>Number(await readFile(ticks,'utf8').catch(()=>'0'))||0,wait=(ms:number)=>new Promise(r=>setTimeout(r,ms));
+ try{
+  await promisify(execFile)(process.env.SCENEFORGE_FFMPEG||'ffmpeg',['-v','error','-y','-f','lavfi','-i','sine=frequency=440:duration=1',file]);await writeFile(model,'fixture');
+  await writeFile(worker,`#!${process.execPath}\nconst fs=require('fs');let n=0;fs.writeFileSync(${JSON.stringify(ticks+'.pid')},String(process.pid));setInterval(()=>fs.writeFileSync(${JSON.stringify(ticks)},String(++n)),10);`,{mode:0o700});
+  const abort=new AbortController(),promise=transcribe({id:'tone',name:'tone',path:file,kind:'audio',duration:1,width:0,height:0},{provider:'local',baseUrl:'',model,localCommand:worker,language:'en'},dir,{signal:abort.signal,background:true,hold});
+  for(let i=0;i<200&&await count()<3;i++)await wait(20);assert.ok(await count()>=3,'the worker runs while no capture is open');
+  hold.open('camera');await wait(80);const frozen=await count();await wait(150);assert.equal(await count(),frozen,'a capture stops the background worker');
+  hold.close('camera');await wait(150);assert.ok(await count()>frozen,'the worker resumes when the capture ends');
+  hold.open('camera');await wait(80);const pid=Number(await readFile(ticks+'.pid','utf8'));abort.abort();await assert.rejects(promise,/cancelled/);assert.throws(()=>process.kill(pid,0),'a stopped worker is still terminated');
+ }finally{await rm(dir,{recursive:true,force:true});}
+});
+test('a prepared mono 16 kHz WAV goes straight to whisper without an ffmpeg pass',async()=>{
+ const {writeFile,readFile}=await import('node:fs/promises');const {transcribe}=await import('./ai.js');
+ const dir=await mkdtemp(path.join(tmpdir(),'sceneforge-transcribe-prepared-')),file=path.join(dir,'batch.wav'),worker=path.join(dir,'whisper'),model=path.join(dir,'model.bin');
+ try{
+  await writeFile(file,'RIFF prepared');await writeFile(model,'fixture');
+  await writeFile(worker,`#!${process.execPath}\nconst fs=require('fs'),a=process.argv.slice(2),input=a[a.indexOf('-f')+1];fs.writeFileSync(a[a.indexOf('-of')+1]+'.json',JSON.stringify({transcription:[{text:fs.readFileSync(input,'utf8'),offsets:{from:0,to:500}}]}));`,{mode:0o700});
+  const result=await transcribe({id:'batch',name:'batch',path:file,kind:'audio',duration:1,width:0,height:0},{provider:'local',baseUrl:'',model,localCommand:worker,language:'en'},dir,{prepared:true});
+  assert.equal(result.captions[0].text,'RIFF prepared');assert.equal(await readFile(file,'utf8'),'RIFF prepared');
+ }finally{await rm(dir,{recursive:true,force:true});}
+});
 test('delayed punctuation does not stretch a spoken word across a quiet gap',()=>{
  const parsed=parseTranscription({transcription:[{tokens:[{text:' statement',offsets:{from:2880,to:3190}},{text:'.',offsets:{from:5450,to:5540}},{text:' This',offsets:{from:5560,to:5800}},{text:',',offsets:{from:5800,to:5800}}]}]});
  assert.equal(parsed[0].words![0].end,3.19);assert.equal(parsed[0].text,'statement.');assert.equal(parsed[1].words![0].text,'This,');assert.equal(parsed[1].words![0].end,5.8);

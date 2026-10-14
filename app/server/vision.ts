@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { createHash, randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import type { Media } from "../shared/types.ts";
+import { sharedWork } from "./shared-work.ts";
 export interface FaceBounds {
   x: number;
   y: number;
@@ -82,7 +83,8 @@ export async function getVisionCapabilities() {
     ],
   };
 }
-const faces = new Map<string, Promise<FaceBounds | null>>();
+const faces = new Map<string, Promise<FaceBounds | null>>(),
+  faceWork = sharedWork<FaceBounds | null>();
 export async function detectFace(
   input: string,
   options: { time?: number; signal?: AbortSignal } = {},
@@ -92,11 +94,11 @@ export async function detectFace(
     time = options.time || 0,
     key = hash(`${file}:${stat.size}:${stat.mtimeMs}:${time}`);
   if (faces.has(key)) return faces.get(key)!;
-  const task = (async () => {
+  // Requesters share one detection; an aborted preview stops it only when nobody else is waiting.
+  const face = await faceWork(key, async (signal) => {
     const binary = await compileHelper();
-    const child = spawn(binary, ["face", file, String(time)], {
-      signal: options.signal,
-    });
+    signal.throwIfAborted();
+    const child = spawn(binary, ["face", file, String(time)], { signal });
     const result = JSON.parse(await processResult(child));
     return (
       [...result.faces].sort(
@@ -104,12 +106,11 @@ export async function detectFace(
           b.width * b.height - a.width * a.height,
       )[0] || null
     );
-  })();
-  faces.set(key, task);
-  task.catch(() => faces.delete(key));
-  return task;
+  }, options.signal);
+  if (!faces.has(key)) faces.set(key, Promise.resolve(face));
+  return face;
 }
-const masks = new Map<string, Promise<string>>();
+const maskWork = sharedWork<string>();
 let active = false;
 const waiting: Array<() => void> = [];
 async function exclusive<T>(fn: () => Promise<T>) {
@@ -147,9 +148,9 @@ export async function personMask(
     await fs.access(out);
     return out;
   } catch {}
-  if (masks.has(key)) return masks.get(key)!;
-  const task = exclusive(async () => {
-    options.signal?.throwIfAborted();
+  // /vision and /vision-mask.png share one mask per key; it is cancelled only when every requester aborted.
+  return maskWork(key, (signal) => exclusive(async () => {
+    signal.throwIfAborted();
     const binary = await compileHelper(),
       temp = out + "." + randomUUID() + ".tmp.mkv";
     let native: ChildProcess | undefined, encoder: ChildProcess | undefined;
@@ -198,7 +199,7 @@ export async function personMask(
         native?.kill("SIGKILL");
         encoder?.kill("SIGKILL");
       };
-      options.signal?.addEventListener("abort", stop, { once: true });
+      signal.addEventListener("abort", stop, { once: true });
       let nativeError = "",
         encoderError = "";
       native.stderr!.on(
@@ -219,11 +220,11 @@ export async function personMask(
         });
       try {
         const codes = await Promise.all([done(native), done(encoder)]);
-        options.signal?.throwIfAborted();
+        signal.throwIfAborted();
         if (codes.some((c) => c !== 0))
           throw Error(`Vision mask failed: ${nativeError} ${encoderError}`);
       } finally {
-        options.signal?.removeEventListener("abort", stop);
+        signal.removeEventListener("abort", stop);
       }
       if ((await fs.stat(temp)).size < 100) throw Error("Empty person mask");
       await fs.rename(temp, out);
@@ -233,13 +234,7 @@ export async function personMask(
       encoder?.kill("SIGTERM");
       await fs.rm(temp, { force: true });
     }
-  });
-  masks.set(key, task);
-  try {
-    return await task;
-  } finally {
-    masks.delete(key);
-  }
+  }), options.signal);
 }
 
 /** A source-frame mask for an interactive canvas preview. White is person alpha. */
@@ -247,6 +242,7 @@ export async function visionPreview(
   media: Media,
   time: number,
   cacheDir: string,
+  signal?: AbortSignal,
 ): Promise<{ maskPath: string; face: FaceBounds | null; time: number; width: number; height: number }> {
   if (media.kind === "audio") throw Error("Vision preview requires a video or image");
   if (!Number.isFinite(time)) throw Error("Invalid vision preview time");
@@ -257,8 +253,8 @@ export async function visionPreview(
   const width = Math.max(2, Math.round(media.width * scale));
   const height = Math.max(2, Math.round(media.height * scale));
   const [mask, face] = await Promise.all([
-    personMask(media.path, cacheDir, { start: sampleTime, end: sampleTime + 0.125, fps: 8, width, height }),
-    detectFace(media.path, { time: sampleTime }),
+    personMask(media.path, cacheDir, { start: sampleTime, end: sampleTime + 0.125, fps: 8, width, height, signal }),
+    detectFace(media.path, { time: sampleTime, signal }),
   ]);
   const maskPath = mask.replace(/\.mkv$/, ".png");
   try { await fs.access(maskPath); }
@@ -268,7 +264,7 @@ export async function visionPreview(
       await processResult(spawn(process.env.SCENEFORGE_FFMPEG || "ffmpeg", [
         "-v", "error", "-nostdin", "-y", "-i", mask,
         "-frames:v", "1", "-pix_fmt", "gray", "-threads", "1", temp,
-      ]));
+      ], { signal }));
       await fs.rename(temp, maskPath);
     } finally { await fs.rm(temp, { force: true }); }
   }
