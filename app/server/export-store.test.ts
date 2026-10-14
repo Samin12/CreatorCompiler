@@ -83,3 +83,35 @@ test('public export options cannot inject internal render controls and resolved 
   const job=await f.store.create(f.project,{format:'mp4',width:641,height:359});assert.equal(job.options.width,642);assert.equal(job.options.height,360);
  }finally{await f.cleanup();}
 });
+
+async function fingerprintRace<T>(mutate:(file:string,attempt:number)=>Promise<void>,run:(file:string,attempts:()=>number)=>Promise<T>,beforeOpen?:(file:string,attempt:number)=>Promise<void>){
+ const directory=await fs.mkdtemp(path.join(tmpdir(),'sceneforge-renderer-metadata-')),file=path.join(directory,'renderer.bin');await fs.writeFile(file,'original renderer bytes');await fs.chmod(file,0o600);
+ const originalOpen=fs.open,real=await fs.realpath(file);let attempts=0;
+ try{
+  fs.open=(async(...args:Parameters<typeof fs.open>)=>{const match=args[0]===real,attempt=match?++attempts:0;if(match)await beforeOpen?.(file,attempt);const handle=await originalOpen(...args);if(match){const read=handle.createReadStream.bind(handle);handle.createReadStream=((opts:any)=>{const stream=read(opts),iterator=stream[Symbol.asyncIterator].bind(stream);let once=false;stream[Symbol.asyncIterator]=async function*(){for await(const chunk of {[Symbol.asyncIterator]:iterator}){if(!once){once=true;await mutate(file,attempt);}yield chunk;}return undefined;};return stream;}) as any;}return handle;}) as typeof fs.open;
+  return await run(file,()=>attempts);
+ }finally{fs.open=originalOpen;await fs.rm(directory,{recursive:true,force:true});}
+}
+test('source fingerprint remains strict for a real metadata-only race',async()=>{
+ const {fingerprintFile}=await import('./export-store.js');
+ await fingerprintRace(async(file)=>{await fs.chmod(file,0o640);},async(file,attempts)=>{await assert.rejects(fingerprintFile(file),/changed while/);assert.equal(attempts(),1);assert.equal(await fs.readFile(file,'utf8'),'original renderer bytes');});
+});
+test('renderer rehash tolerates one provenance-like metadata change only when full bytes match',async()=>{
+ const {fingerprintRendererFile}=await import('./export-store.js');const {createHash}=await import('node:crypto');
+ await fingerprintRace(async(file,attempt)=>{if(attempt===1)await fs.chmod(file,0o640);},async(file,attempts)=>{const identity=await fingerprintRendererFile(file);assert.equal(attempts(),2);assert.equal(identity.sha256,createHash('sha256').update('original renderer bytes').digest('hex'));assert.equal(identity.realPath,await fs.realpath(file));});
+});
+test('renderer metadata that keeps changing fails after three reads and stays within the deadline',async()=>{
+ const {fingerprintRendererFile}=await import('./export-store.js');
+ await fingerprintRace(async(file,attempt)=>{await fs.chmod(file,attempt%2?0o640:0o600);},async(file,attempts)=>{const start=Date.now();await assert.rejects(fingerprintRendererFile(file),error=>error instanceof Error&&error.message.includes(file)&&error.message.includes('changed while'));assert.equal(attempts(),3);assert.ok(Date.now()-start<1000);});
+ await assert.rejects(fingerprintRendererFile('/never-opened',Date.now()-1),/timed out/);
+});
+test('renderer content, size, and pathname races do not become accepted startup baselines',async()=>{
+ const {fingerprintRendererFile}=await import('./export-store.js');
+ for(const kind of ['content','size','pathname'])await fingerprintRace(async(file,attempt)=>{if(attempt!==1)return;if(kind==='pathname'){await fs.writeFile(file+'.new','original renderer bytes');await fs.rename(file+'.new',file);}else await fs.writeFile(file,kind==='size'?'different longer renderer contents':'modified renderer bytes');},async(file,attempts)=>{await assert.rejects(fingerprintRendererFile(file),/changed while/);assert.equal(attempts(),1);});
+});
+test('metadata retry requires identical full hashes even if later content has stable metadata',async()=>{
+ const {fingerprintRendererFile}=await import('./export-store.js');
+ await fingerprintRace(async(file,attempt)=>{if(attempt===1)await fs.chmod(file,0o640);},async(file,attempts)=>{
+  await assert.rejects(fingerprintRendererFile(file),/Renderer content changed/);assert.equal(attempts(),2);
+ },async(file,attempt)=>{if(attempt===2)await fs.writeFile(file,'modified renderer bytes');});
+});

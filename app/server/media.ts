@@ -9,6 +9,7 @@ import { getFaceTrack } from "./face-tracking.ts";
 import { faceCropCommands } from "./face-crop.ts";
 import type { FaceTrack } from "../shared/face-tracking.ts";
 import { filterSum } from "./filter-expression.ts";
+import { mediaCapabilityProbe } from "./media-capabilities.ts";
 import {
   clipDuration,
   clipEffectTiming,
@@ -161,23 +162,7 @@ function command(
       }),
   );
 }
-let capabilities:
-  | Promise<{ ffmpeg: boolean; ffprobe: boolean; hardwareEncode: boolean }>
-  | undefined;
-export function getCapabilities() {
-  return (capabilities ??= (async () => {
-    const [f, p] = await Promise.allSettled([
-      command(FFMPEG, ["-hide_banner", "-encoders"]),
-      command(FFPROBE, ["-version"]),
-    ]);
-    return {
-      ffmpeg: f.status === "fulfilled",
-      ffprobe: p.status === "fulfilled",
-      hardwareEncode:
-        f.status === "fulfilled" && /h264_videotoolbox/.test(f.value),
-    };
-  })());
-}
+export const getCapabilities = mediaCapabilityProbe(FFMPEG, FFPROBE);
 async function identity(input: string) {
   if (!path.isAbsolute(input)) throw new Error("Media path must be absolute");
   const real = await fs.realpath(input),

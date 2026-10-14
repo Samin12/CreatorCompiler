@@ -16,16 +16,46 @@ const hash=(x:unknown)=>createHash('sha256').update(JSON.stringify(x)).digest('h
 const conflict=(message:string)=>Object.assign(Error(message),{status:409});
 const jobFields=(j:Job)=>({id:j.id,type:j.type,status:j.status,progress:j.progress,message:j.message,outputPath:j.outputPath,startedAt:j.startedAt,completedAt:j.completedAt,error:j.error});
 const stamp=(s:{size:number|bigint;mtimeMs:number|bigint;ctimeMs:number|bigint;dev:number|bigint;ino:number|bigint})=>({size:Number(s.size),mtimeMs:Number(s.mtimeMs),ctimeMs:Number(s.ctimeMs),dev:Number(s.dev),ino:Number(s.ino)});
+class FingerprintChanged extends Error {
+ constructor(readonly metadataOnly:boolean,readonly readSha256:string){super('File changed while its fingerprint was being read');}
+}
 
 /** Hash through an open descriptor and reject a file that changes while read. */
-export async function fingerprintFile(file:string):Promise<Identity>{
+export async function fingerprintFile(file:string,signal?:AbortSignal):Promise<Identity>{
+ signal?.throwIfAborted();
  const realPath=await fs.realpath(file),handle=await fs.open(realPath,'r');
  try{
   const before=await handle.stat();if(!before.isFile())throw Error('Expected a regular media file');
-  const digest=createHash('sha256');for await(const chunk of handle.createReadStream({autoClose:false}))digest.update(chunk);
-  const after=await handle.stat(),current=await fs.stat(file);if(JSON.stringify(stamp(before))!==JSON.stringify(stamp(after))||JSON.stringify(stamp(current))!==JSON.stringify(stamp(after))||await fs.realpath(file)!==realPath)throw Error('File changed while its fingerprint was being read');
-  return {path:file,realPath,...stamp(after),sha256:digest.digest('hex')};
+  const digest=createHash('sha256');for await(const chunk of handle.createReadStream({autoClose:false,signal}))digest.update(chunk);
+  const after=await handle.stat(),current=await fs.stat(file),currentRealPath=await fs.realpath(file),sha256=digest.digest('hex');
+  const beforeStamp=stamp(before),afterStamp=stamp(after),currentStamp=stamp(current);
+  if(JSON.stringify(beforeStamp)!==JSON.stringify(afterStamp)||JSON.stringify(currentStamp)!==JSON.stringify(afterStamp)||currentRealPath!==realPath){
+   const withoutCtime=({ctimeMs:_ctime,...identity}:ReturnType<typeof stamp>)=>JSON.stringify(identity);
+   throw new FingerprintChanged(currentRealPath===realPath&&withoutCtime(beforeStamp)===withoutCtime(afterStamp)&&withoutCtime(currentStamp)===withoutCtime(afterStamp),sha256);
+  }
+  signal?.throwIfAborted();return {path:file,realPath,...afterStamp,sha256};
  }finally{await handle.close();}
+}
+/** macOS may attach provenance metadata on first launch. Rehash only that narrow race,
+ * require the same digest on every read, and retain strict source-media fingerprinting. */
+export async function fingerprintRendererFile(file:string,deadline=Date.now()+5000):Promise<Identity>{
+ const failure=(error:unknown)=>new Error(`Could not verify renderer ${file}: ${error instanceof Error?error.message:String(error)}`,{cause:error});
+ let firstDigest:string|undefined;
+ for(let attempt=0;attempt<3;attempt++){
+  const remaining=deadline-Date.now();if(remaining<=0)throw failure(Error('Renderer verification timed out. Try opening SceneForge again.'));
+  try{
+   const identity=await fingerprintFile(file,AbortSignal.timeout(remaining));
+   if(firstDigest!==undefined&&identity.sha256!==firstDigest)throw Error('Renderer content changed while its fingerprint was being read');
+   return identity;
+  }catch(error){
+   if(!(error instanceof FingerprintChanged)||!error.metadataOnly||attempt===2)throw failure(error);
+   if(firstDigest!==undefined&&error.readSha256!==firstDigest)throw failure(Error('Renderer content changed while its fingerprint was being read'));
+   firstDigest=error.readSha256;
+   const delay=25*(attempt+1);if(Date.now()+delay>=deadline)throw failure(Error('Renderer verification timed out. Try opening SceneForge again.'));
+   await new Promise(resolve=>setTimeout(resolve,delay));
+  }
+ }
+ throw failure(Error('Renderer verification did not settle. Try opening SceneForge again.'));
 }
 async function atomic(file:string,value:unknown){
  const tmp=file+'.'+randomUUID()+'.tmp';let handle:FileHandle|undefined;
@@ -39,12 +69,13 @@ async function resolveBinary(name:string){
 }
 /** Conservative signature: renderer sources/bundle, native helpers, encoders and host runtime. */
 export async function rendererFingerprint():Promise<string>{
+ const deadline=Date.now()+5000;
  const dir=path.dirname(fileURLToPath(import.meta.url));const files:string[]=[];
  for(const file of await fs.readdir(dir))if(/\.(?:ts|swift)$/.test(file)&&!file.endsWith('.test.ts')||file==='index.mjs'||file==='sceneforge-vision'||file==='sceneforge-text-renderer')files.push(path.join(dir,file));
  const shared=path.resolve(dir,'../shared');try{for(const file of await fs.readdir(shared))if(file.endsWith('.ts'))files.push(path.join(shared,file));}catch{}
  const signatures:unknown[]=[];
- for(const file of files.sort())signatures.push([path.basename(file),(await fingerprintFile(file)).sha256]);
- for(const name of [process.env.SCENEFORGE_FFMPEG||'ffmpeg',process.env.SCENEFORGE_FFPROBE||'ffprobe']){const file=await resolveBinary(name);signatures.push([path.basename(name),file?(await fingerprintFile(file)).sha256:'missing']);}
+ for(const file of files.sort())signatures.push([path.basename(file),(await fingerprintRendererFile(file,deadline)).sha256]);
+ for(const name of [process.env.SCENEFORGE_FFMPEG||'ffmpeg',process.env.SCENEFORGE_FFPROBE||'ffprobe']){const file=await resolveBinary(name);signatures.push([path.basename(name),file?(await fingerprintRendererFile(file,deadline)).sha256:'missing']);}
  signatures.push(['runtime',process.platform,process.arch,process.version,process.versions.electron||null]);
  return hash(signatures);
 }

@@ -4,6 +4,8 @@ import Vision
 import Accelerate
 import CoreImage
 import ImageIO
+import CoreML
+import Metal
 
 struct Failure: Error { let message:String }
 let args=CommandLine.arguments
@@ -15,6 +17,39 @@ func oriented(_ t:CGAffineTransform)->CGImagePropertyOrientation {
  if t.a == -1 && t.d == -1{return .down}
  return .up
 }
+let cpuOnly = ProcessInfo.processInfo.environment["SCENEFORGE_VISION_CPU_ONLY"] == "1" || MTLCreateSystemDefaultDevice() == nil
+func configureCPU(_ request:VNRequest) throws {
+ if #available(macOS 14.0, *) {
+   let stages=try request.supportedComputeStageDevices
+   guard !stages.isEmpty else{throw Failure(message:"Vision CPU inference is unavailable")}
+   // Select only devices the request itself reports as supported.
+   for (stage,devices) in stages {
+     guard let cpu=devices.first(where:{if case .cpu = $0{return true};return false}) else{throw Failure(message:"Vision CPU inference is unavailable for \(stage)")}
+     request.setComputeDevice(cpu,for:stage)
+   }
+ }else{request.usesCPUOnly=true}
+}
+final class VisionExecution {
+ let request:VNRequest
+ var configuredCPU=false
+ init(_ request:VNRequest) throws {
+   self.request=request
+   if cpuOnly{try configureCPU(request);configuredCPU=true}
+ }
+ func perform(_ handler:VNImageRequestHandler) throws {
+   do{try handler.perform([request])}
+   catch{
+     let error=error as NSError
+     // A hosted Mac may advertise accelerators but fail to create a context.
+     // Retry that compute failure once on supported CPU devices. Decode and
+     // argument failures retain their original error; CPU failures propagate.
+     guard !configuredCPU && error.domain == VNErrorDomain &&
+       (error.code == VNErrorCode.internalError.rawValue || error.code == VNErrorCode.unsupportedComputeDevice.rawValue) else{throw error}
+     try configureCPU(request);configuredCPU=true
+     try handler.perform([request])
+   }
+ }
+}
 func run() throws {
  guard args.count>=3 else{throw Failure(message:"Usage: vision-helper face|segment PATH [start] [duration] [fps] [width] [height]")}
  let mode=args[1],url=URL(fileURLWithPath:args[2]),start=max(0,number(3,0))
@@ -22,16 +57,16 @@ func run() throws {
    let image:CGImage
    if let source=CGImageSourceCreateWithURL(url as CFURL,nil),let still=CGImageSourceCreateImageAtIndex(source,0,nil){image=still}
    else { let asset=AVURLAsset(url:url);let generator=AVAssetImageGenerator(asset:asset);generator.appliesPreferredTrackTransform=true;generator.maximumSize=CGSize(width:640,height:640);generator.requestedTimeToleranceBefore = .zero;generator.requestedTimeToleranceAfter = .zero;image=try generator.copyCGImage(at:CMTime(seconds:start,preferredTimescale:60000),actualTime:nil) }
-   let request=VNDetectFaceRectanglesRequest();try VNImageRequestHandler(cgImage:image,options:[:]).perform([request])
+   let request=VNDetectFaceRectanglesRequest();try VisionExecution(request).perform(VNImageRequestHandler(cgImage:image,options:[:]))
    let faces=(request.results ?? []).map { face -> [String:Double] in let b=face.boundingBox;return ["x":b.minX,"y":1-b.maxY,"width":b.width,"height":b.height,"confidence":Double(face.confidence)] }
    let data=try JSONSerialization.data(withJSONObject:["faces":faces,"width":image.width,"height":image.height]);FileHandle.standardOutput.write(data);return
  }
  if mode == "track" {
    let duration=number(4,1),fps=number(5,4)
    guard duration>=0 && duration<=12 && fps==4 else{throw Failure(message:"Invalid face tracking bounds")}
-   let context=CIContext(options:[.cacheIntermediates:false]),request=VNDetectFaceRectanglesRequest()
+   let context=CIContext(options:[.cacheIntermediates:false,.useSoftwareRenderer:cpuOnly]),request=VNDetectFaceRectanglesRequest(),execution=try VisionExecution(request)
    func detect(_ image:CGImage) throws -> Any {
-     try VNImageRequestHandler(cgImage:image,options:[:]).perform([request])
+     try execution.perform(VNImageRequestHandler(cgImage:image,options:[:]))
      let faces=(request.results ?? []).filter{$0.confidence>=0.5}.sorted { a,b in
        let aa=a.boundingBox.width*a.boundingBox.height,bb=b.boundingBox.width*b.boundingBox.height
        return aa==bb ? a.boundingBox.minX<b.boundingBox.minX : aa>bb
@@ -70,9 +105,9 @@ func run() throws {
  let duration=number(4,1),fps=number(5,8),width=Int(number(6,320)),height=Int(number(7,180))
  guard duration>0 && duration<=600 && fps>0 && fps<=30 && width>0 && height>0 else{throw Failure(message:"Invalid segmentation bounds")}
  let request=VNGeneratePersonSegmentationRequest();request.qualityLevel = .balanced;request.outputPixelFormat=kCVPixelFormatType_OneComponent8
- let context=CIContext(options:[.cacheIntermediates:false])
+ let context=CIContext(options:[.cacheIntermediates:false,.useSoftwareRenderer:cpuOnly]),execution=try VisionExecution(request)
  func mask(_ handler:VNImageRequestHandler) throws -> Data {
-   try handler.perform([request]);guard let pixel=request.results?.first?.pixelBuffer else {return Data(count:width*height)}
+   try execution.perform(handler);guard let pixel=request.results?.first?.pixelBuffer else {return Data(count:width*height)}
    CVPixelBufferLockBaseAddress(pixel,.readOnly);defer{CVPixelBufferUnlockBaseAddress(pixel,.readOnly)}
    guard let data=CVPixelBufferGetBaseAddress(pixel) else{throw Failure(message:"No mask buffer")}
    var source=vImage_Buffer(data:data,height:vImagePixelCount(CVPixelBufferGetHeight(pixel)),width:vImagePixelCount(CVPixelBufferGetWidth(pixel)),rowBytes:CVPixelBufferGetBytesPerRow(pixel))
