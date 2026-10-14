@@ -66,9 +66,11 @@ test('status launches one idle spare helper that the next start adopts; reset st
  }finally{await f.close();}
 });
 test('an idle spare helper exits after its idle window and a dead spare is never adopted',async()=>{
- const f=await fixture(true,{spareIdleMs:5});try{const status=f.handlers.get('native-recording-status')!;await status(f.event);await new Promise(r=>setTimeout(r,20));assert.deepEqual(f.children[0].killed,['SIGTERM']);
-  await status(f.event);f.children[1].exitCode=1;const started=await f.manager.start({selection,systemAudio:false});assert.equal(f.children.length,3);assert.deepEqual(f.children[1].killed,[]);await f.manager.stop(started.id);
- }finally{await f.close();}
+ const f=await fixture(true,{spareIdleMs:5});try{const status=f.handlers.get('native-recording-status')!;await status(f.event);await new Promise(r=>setTimeout(r,20));assert.deepEqual(f.children[0].killed,['SIGTERM']);}finally{await f.close();}
+ // The dead-spare half keeps the default idle window so start() cannot race the idle timer.
+ const g=await fixture();try{await g.handlers.get('native-recording-status')!(g.event);const dead=g.children[0];dead.exitCode=1;let wrote=false;dead.stdin.on('data',()=>{wrote=true;});
+  const started=await g.manager.start({selection,systemAudio:false});assert.equal(g.children.length,2);assert.equal(wrote,false);assert.deepEqual(dead.killed,[]);assert.deepEqual(g.commands.map(c=>c.command),['start']);await g.manager.stop(started.id);
+ }finally{await g.close();}
 });
 test('started state reaches the border callback after the start reply, and later state keeps its order',async()=>{
  const f=await fixture(true,{onPrepare:(value:any)=>f.states.push({type:'prepare',...value})} as any);try{
