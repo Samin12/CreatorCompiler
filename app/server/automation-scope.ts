@@ -1,13 +1,16 @@
 import {clipDuration,clipEffectTiming,projectDuration,makeId,type Project,type Clip} from '../shared/types.js';
 import {cutTimelineRange} from '../shared/timeline-edits.js';
-export interface SceneScope {id:string;name:string;start:number;end:number}
+export interface SceneScope {id:string;name:string;start:number;end:number;
+ /** Chapter position in the whole project, so a scene-only plan numbers itself like a full pass. */
+ position?:{index:number;total:number}}
 export function sceneScope(p:Project,id:string):SceneScope{
  const s=p.scenes.find(s=>s.id===id);
  if(!s)throw Error('This scene no longer exists. Reopen the action for a current scene.');
  if(!Number.isFinite(s.start)||!Number.isFinite(s.duration)||s.duration<=0)throw Error('Record or import footage into this scene first.');
  const end=s.start+s.duration;
  if(p.scenes.some(other=>other.id!==id&&other.duration>0&&other.start<end-1e-7&&other.start+other.duration>s.start+1e-7))throw Error('Scenes overlap. Separate their boundaries before editing one scene.');
- return {id:s.id,name:s.name,start:s.start,end};
+ const chapters=p.scenes.filter(s=>s.duration>0).slice(0,100),index=chapters.findIndex(c=>c.id===s.id);
+ return {id:s.id,name:s.name,start:s.start,end,...(index>=0?{position:{index,total:chapters.length}}:{})};
 }
 /** Planning keeps absolute times but only exposes this scene's media intervals. */
 export function scenePlanningProject(p:Project,scope:SceneScope,wholeWordsOnly=false):Project{

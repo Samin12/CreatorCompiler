@@ -10,8 +10,11 @@ The independent model is defined in [types.ts](types.ts). Times are seconds. Cli
 
 | Route | Response |
 | --- | --- |
+| `GET /ready` | `{application:'SceneForge',version:string}` immediately, without media probing. Launchers poll this. |
 | `GET /health` | Capability object below, plus `dataDir`. |
 | `GET /capabilities` | The same capability object without `dataDir`. |
+
+The media capability probe (FFmpeg encoder list and a VideoToolbox test encode) starts in the background when the service boots and is memoized, so `/health` normally answers without waiting for it.
 
 ```ts
 {
@@ -40,7 +43,7 @@ The independent model is defined in [types.ts](types.ts). Times are seconds. Cli
 | `GET /projects` | — | `ProjectSummary[]`, most recently updated first; optional `thumbnailMediaId`. |
 | `POST /projects` | `{name?:string}` | New `Project`. |
 | `GET /projects/:id` | — | `Project`, with quoted SHA-256 `ETag`. |
-| `PUT /projects/:id` | Complete `Project`; body ID must match route ID | Saved `Project`, with its new quoted `ETag`. |
+| `PUT /projects/:id` | Complete `Project`; body ID must match route ID | Saved `Project`, with its new quoted `ETag`. With `Prefer: return=minimal`, `{minimal:true,id,updatedAt}` and the same `ETag`. |
 | `DELETE /projects/:id` | — | `{ok:true}`; moves project JSON to local trash. |
 | `POST /projects/:id/duplicate` | — | Independent project copy with a new ID. |
 | `GET /projects/:id/history` | — | Up to 100 `{id,createdAt,name}` entries. |
@@ -48,6 +51,10 @@ The independent model is defined in [types.ts](types.ts). Times are seconds. Cli
 | `POST /projects/:id/checkpoint` | — | Saved `Project`, with an explicit history checkpoint. |
 
 `ETag` is the SHA-256 revision of the persisted project JSON. Send that exact quoted value as `If-Match` on a subsequent `PUT`. The service serializes writes per project, checks the expected revision against current committed state, validates the project and atomically replaces the JSON file. It assigns `updatedAt`; clients should adopt the returned project and revision.
+
+`Prefer: return=minimal` is for the editor's autosave. The service stores the request body unchanged except `updatedAt`, so the minimal response means the committed project equals the request with that one value replaced (key order unchanged) and its revision is the returned `ETag`. If that equality cannot be guaranteed the full project is returned instead, so clients must accept either shape (`Preference-Applied: return=minimal` marks the minimal one). Requests without the header are unaffected.
+
+Project files are compact JSON, and the revision is the SHA-256 of exactly that JSON. History snapshots are copies of the committed file. The service caches the committed JSON and revision keyed by file identity, so reads of an unchanged project and conditional writes do not reparse it; any external change to the file is detected and reread.
 
 A stale or missing current project with a supplied revision returns `409` without writing or emitting a save event. `If-Match` is supported but **not mandatory** at the raw HTTP layer: omitting it permits an unconditional write. The editor and MCP transaction client use conditional writes. Comparing `updatedAt` alone is not the concurrency contract. The endpoint accepts a single exact revision; HTTP wildcard/list/precondition negotiation is not implemented.
 
@@ -86,7 +93,7 @@ event: project
 data: {"id":"project-id","revision":"raw-sha256","updatedAt":"ISO-time","action":"saved"}
 ```
 
-`action` is `saved` or `trashed`. Unlike the HTTP `ETag`, the event revision is unquoted. Save events follow durable atomic replacement; trash events follow the rename. Rejected writes emit nothing. A heartbeat comment is sent every 15 seconds. There are no event IDs or replay log; clients should re-read on `ready`/reconnection.
+`action` is `saved` or `trashed`. Unlike the HTTP `ETag`, the event revision is unquoted. A save made by the local transcription pipeline also carries `"source":"automatic-captions"`; that save changes only `captions` (plus `updatedAt`) relative to the revision it replaced, so a client can merge it without treating it as a conflicting edit. Save events follow durable atomic replacement; trash events follow the rename. Rejected writes emit nothing. A heartbeat comment is sent every 15 seconds. There are no event IDs or replay log; clients should re-read on `ready`/reconnection.
 
 The editor waits for its own pending saves before handling an event, ignores its acknowledged save revision, and refreshes clean external changes. Unsaved edits cause a conflict notice and paused autosave instead of silent replacement. A clean externally trashed project closes. Clients must handle `trashed` even if its revision equals the last acknowledged saved revision.
 
@@ -151,12 +158,12 @@ Export requires `If-Match` equal to the reviewed plan revision; a missing or sta
 
 | Route | Body/query | Response |
 | --- | --- | --- |
-| `POST /recordings` | `{name:string,mimeType:string}` | `{id:string}`; WebM audio/video only. |
+| `POST /recordings` | `{name:string,mimeType:string}` | `{id:string}`; `video/webm`, `audio/webm`, `video/mp4` or `audio/mp4`, with optional `;codecs=` parameters. |
 | `PUT /recordings/:id/chunks` | `?index=<integer>`; nonempty `application/octet-stream`, maximum 16 MB | `{ok:true,index:number}`. |
 | `POST /recordings/:id/finish` | — | Final registered `Media`. |
 | `GET /recordings/recovery` | — | Incomplete recordings with metadata and a `chunks` count. |
 
-Chunk indexes begin at zero and are sequential. Repeating the same index with identical bytes is safe; different bytes are rejected. Writes are serialized per recording, use temporary files/rename, and check free disk space. Finalization losslessly remuxes streamed WebM to add duration and seek cues, registers the media, records completion, then removes completed chunks. A repeated successful finish returns the existing media. Capture streams themselves are managed by the renderer's MediaRecorder APIs.
+Chunk indexes begin at zero and are sequential. Repeating the same index with identical bytes is safe; different bytes are rejected. Writes are serialized per recording, use temporary files/rename, and check free disk space. Finalization branches on the session's MIME type. WebM chunks are losslessly remuxed to `take.webm` to add duration and seek cues. MediaRecorder MP4 is fragmented, so its chunks concatenate byte-wise and are remuxed with stream copy to `take.mp4` with the index at the front (`+faststart`). `cat` streams the chunks in order into FFmpeg's standard input, one open file at a time, so there is no intermediate copy and no limit on take length from open-file limits. Finalization registers the media, records completion and responds; completed chunks are then deleted in the background, and any left behind by an interrupted cleanup are removed when the service next starts. The renderer creates sessions when its countdown starts, so a cancelled start leaves a session with no chunks. Recovery ignores those, and the service deletes ones older than five minutes, containing nothing but their metadata, when it next starts. Audio takes, and audio imported through `POST /media/import` with an `audioRole` (native system sound), warm their waveform cache in the background so take review does not wait for a decode. A warm waits while any recording session is open, so it never competes with the next take. Recovery of unfinished sessions handles both containers. A repeated successful finish returns the existing media. Capture streams themselves are managed by the renderer's MediaRecorder APIs.
 
 ## Export and jobs
 
@@ -180,9 +187,9 @@ Chunk indexes begin at zero and are sequential. Repeating the same index with id
 | `POST /ai/analyze` | `{projectId,kind:'silence'|'fillers'|'script',prompt?:string}` | `{suggestions:AISuggestion[]}` without applying changes. |
 | `POST /ai/voice-follow` | `?projectId=<id>&cursor=<word-index>`; raw `audio/wav` | `{cursor:number,transcript:string,confidence:number}`. |
 
-Transcription validates that the media belongs to the project. Returned captions are proposals: map source ranges through all intended audible clip occurrences before saving timeline captions. Silence/filler/script analysis does not modify projects. Provider keys are saved locally with owner-only file permissions and are not encrypted in Keychain.
+Transcription validates that the media belongs to the project. Explicit transcription runs at normal priority. Returned captions are proposals: map source ranges through all intended audible clip occurrences before saving timeline captions. Silence/filler/script analysis does not modify projects. Provider keys are saved locally with owner-only file permissions and are not encrypted in Keychain.
 
-Voice following accepts mono 16 kHz PCM16 WAV batches, greater than zero and at most 10 seconds/350,000 bytes. It aligns speech against the joined project scene scripts; the cursor is the next script-word index. It forces local inference even when a cloud transcription provider is selected and permits one inference batch at a time.
+Voice following accepts mono 16 kHz PCM16 WAV batches, greater than zero and at most 10 seconds/350,000 bytes. It aligns speech against the joined project scene scripts; the cursor is the next script-word index. It forces local inference even when a cloud transcription provider is selected and permits one inference batch at a time. The validated WAV goes to Whisper without an FFmpeg conversion, and the joined script is reparsed only when the project's committed revision changes.
 
 ## Automatic transcription and quick actions
 
@@ -203,7 +210,7 @@ Media and clips may carry `audioRole: 'microphone' | 'system'` from explicit cap
 | `POST /automation/:id/undo` | — | `{job,project}` restored only while the applied revision remains current. |
 | `GET /automation/:id/preview` | `phase=before|after&time=<seconds>&changes=<comma-separated-ids>` | Actual composed PNG at width 640. Omit changes for recommended defaults; an empty changes value previews no changes. |
 
-`AutomationJob.status` is `queued`, `running`, `ready`, `complete`, `conflict`, `failed`, or `cancelled`. Quick actions stop at `ready`; they do not apply edits automatically. The proposal includes its base revision, changes/reasons, warnings, and before/after duration. Applying a stale proposal or undoing over a newer edit returns `409`. `/events` also emits `event: automation` with job snapshots. Source work uses one bounded worker queue, deduplicates active project/kind requests, and caches source transcripts by file/model identity. Interrupted jobs are reported failed after restart and can be retried.
+`AutomationJob.status` is `queued`, `running`, `ready`, `complete`, `conflict`, `failed`, or `cancelled`. Quick actions stop at `ready`; they do not apply edits automatically. The proposal includes its base revision, changes/reasons, warnings, and before/after duration. Applying a stale proposal or undoing over a newer edit returns `409`. `/events` also emits `event: automation` with job snapshots. Source work uses one bounded worker queue, deduplicates active project/kind requests, and caches source transcripts by file/model identity. Automatic transcription runs FFmpeg and Whisper at macOS background QoS (`taskpolicy -b`) with two Whisper threads. It does not start while a browser recording session is open (created through `POST /recordings` and not yet finished) or within a few seconds of the last one finishing. A session that has not received a chunk yet (sessions are created at countdown start) stops deferring work after 10 seconds. Each chunk renews a session, and a session with no chunk activity for 60 seconds stops deferring work. The session closes only after chunk uploads queued before `finish` are written. A running automatic FFmpeg or Whisper process is suspended (`SIGSTOP`, with its timeout paused) when a capture opens and resumed afterwards. Because background QoS is slower, automatic work gets three times the normal 30-minute timeout. Cancellation and shutdown still terminate a suspended process. Requested jobs are never deferred themselves, but the queue runs one job at a time: a requested job queued behind a running automatic job that a capture has suspended waits until that job resumes after the capture and finishes. Interrupted jobs are reported failed after restart and can be retried.
 
 The local pipeline chooses an audible primary narration track, maps source words through trims/speed, and preserves manual or edited captions. Background retry of the same failed/cancelled input is suppressed until explicit retry or changed input. Auto-cut selects measured quiet gaps that do not overlap transcript words; exact repeated phrases and optional Claude narrative cuts are unchecked review proposals. Cuts ripple synchronized timeline tracks and retime captions. Review intentional pauses and joins, including clip-relative effects after splitting. Visualize uses existing screen/camera media, a generated static dot grid, chapter slates and source labels. It reports missing proof instead of inventing external research or assets. These actions implement a bounded part of the reference editing workflow.
 

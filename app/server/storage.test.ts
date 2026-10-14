@@ -64,6 +64,28 @@ test('history restoration rejects missing/stale revisions and competes atomicall
  const winner=outcomes.find((x):x is PromiseFulfilledResult<Awaited<ReturnType<typeof s.saveProject>>>=>x.status==='fulfilled')!;
  assert.deepEqual(await s.readProject(p.id),winner.value);
 });
+test('one serialization per save feeds the file, revision, response and observers; the stat-keyed cache sees external writes',async()=>{
+ const events:Array<import('./storage.js').ProjectEvent>=[],observed:unknown[]=[];const onEvent=(e:import('./storage.js').ProjectEvent)=>events.push(e),onCommit=(p:unknown)=>observed.push(p);s.projectEvents.on('project',onEvent);s.projectEvents.on('committed',onCommit);
+ try{
+  const p=await s.newProject('Single pass'),file=path.join(temporary,'projects',p.id+'.json');
+  const body={...p,name:'Edited'},saved=await s.commitProject(body,{expectedRevision:s.revision(p),clone:false,source:'automatic-captions'});
+  assert.equal(saved.project,body,'an unreused HTTP body is committed without a clone');assert.equal(saved.json,JSON.stringify(saved.project));assert.equal(saved.revision,s.revision(saved.project));
+  assert.equal(await readFile(file,'utf8'),saved.json);assert.deepEqual(events.at(-1),{id:p.id,revision:saved.revision,updatedAt:saved.project.updatedAt,action:'saved',source:'automatic-captions'});assert.equal(observed.at(-1),saved.project);
+  assert.equal(s.revision({...body,updatedAt:saved.project.updatedAt}),saved.revision,'a client adopting only updatedAt computes the server revision');
+  const state=await s.projectState(p.id);assert.equal(state.revision,saved.revision);assert.equal(state.json,saved.json);assert.equal(state.project,undefined,'unchanged files are served from the cache');
+  const external={...saved.project,name:'Changed elsewhere'};await writeFile(file,JSON.stringify(external,null,2));const fresh=await s.projectState(p.id);
+  assert.equal(fresh.revision,s.revision(external));assert.equal(fresh.project?.name,'Changed elsewhere');await assert.rejects(s.saveProject({...saved.project,name:'Stale'},{expectedRevision:saved.revision}),/another window/);
+  const next=await s.saveProject({...external,name:'After external'},{expectedRevision:fresh.revision,checkpoint:true});assert.equal(events.at(-1)?.source,undefined);
+  const versions=await s.history(p.id);assert.equal(versions[0].name,'Changed elsewhere');assert.equal(versions[0].createdAt,saved.project.updatedAt);
+  assert.equal(await readFile(path.join(temporary,'history',p.id,versions[0].id+'.json'),'utf8'),JSON.stringify(external,null,2),'history keeps the committed bytes');assert.equal((await s.readProject(p.id)).name,next.name);
+ }finally{s.projectEvents.off('project',onEvent);s.projectEvents.off('committed',onCommit);}
+});
+test('history lists name and date from snapshot heads and falls back to a full parse for other layouts',async()=>{
+ const p=await s.newProject('Head summary'),dir=path.join(temporary,'history',p.id);const {mkdir}=await import('node:fs/promises');await mkdir(dir,{recursive:true});
+ const quoted={...p,name:'Quote " and \\\\ slash ✓',updatedAt:'2026-01-02T03:04:05.000Z'},{name:_,...rest}=p,reordered={...rest,updatedAt:'2026-01-01T00:00:00.000Z',name:'Reordered'};
+ await writeFile(path.join(dir,'1000-a.json'),JSON.stringify(quoted));await writeFile(path.join(dir,'2000-b.json'),JSON.stringify(reordered,null,2));await writeFile(path.join(dir,'3000-c.json'),JSON.stringify({...p,name:'x'.repeat(5000),updatedAt:'2026-01-03T00:00:00.000Z'}));
+ assert.deepEqual(await s.history(p.id),[{id:'3000-c',createdAt:'2026-01-03T00:00:00.000Z',name:'x'.repeat(5000)},{id:'2000-b',createdAt:'2026-01-01T00:00:00.000Z',name:'Reordered'},{id:'1000-a',createdAt:'2026-01-02T03:04:05.000Z',name:quoted.name}]);
+});
 test('separate trashed versions with the same project ID require explicit copy choice',async()=>{
  const p=await s.newProject('Version A');await s.trashProject(p.id);const first=(await s.listTrash()).find(x=>x.projectId===p.id)!;
  await s.saveProject({...p,name:'Version B'});await s.trashProject(p.id);const second=(await s.listTrash()).find(x=>x.projectId===p.id&&x.id!==first.id)!;

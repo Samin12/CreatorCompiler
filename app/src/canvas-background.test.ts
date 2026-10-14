@@ -5,6 +5,7 @@ import {renderToStaticMarkup} from 'react-dom/server';
 import {canvasBackgroundGeometry,canvasBackgroundTile,canvasBackgroundBMP,canvasBackgroundStyle,canvasBackgroundRepeatSize,MOVING_DOTS} from '../shared/canvas-background';
 import {createProject} from '../shared/types';
 import {Stage} from './Stage';
+import {createPlayhead} from './playhead';
 
 const canvas={width:1920,height:1080,background:'#121212'};
 test('moving grid follows height-scaled reference geometry and exact fractional output spacing',()=>{
@@ -18,6 +19,17 @@ test('phase is deterministic when paused, seeks directly, and repeats without ac
  assert.equal(canvasBackgroundGeometry(canvas,16).phaseX,0);
  assert.deepEqual(canvasBackgroundStyle(canvas,4),canvasBackgroundStyle(canvas,4));
  assert.ok(canvasBackgroundGeometry(canvas,16-1/30).phaseX>39.9);
+});
+test('stage drift snaps to device pixels, so the style changes a few times a second instead of every frame',()=>{
+ const scale=1000/1920,positions=new Set<string>();
+ for(let frame=0;frame<120;frame++){
+  const snapped=canvasBackgroundStyle(canvas,frame/120,scale,2).backgroundPosition.split(' ').map(parseFloat),exact=canvasBackgroundStyle(canvas,frame/120,scale).backgroundPosition.split(' ').map(parseFloat);
+  for(const axis of [0,1]){assert.equal(snapped[axis]*2,Math.round(snapped[axis]*2));assert.ok(Math.abs(snapped[axis]-exact[axis])<=.25+1e-9);}
+  positions.add(snapped.join());
+ }
+ assert.ok(positions.size>1&&positions.size<=6,`${positions.size} distinct positions in one second at 120 Hz`);
+ assert.deepEqual({...canvasBackgroundStyle(canvas,4,scale,2),backgroundPosition:''},{...canvasBackgroundStyle(canvas,4,scale),backgroundPosition:''});
+ assert.deepEqual(canvasBackgroundStyle(canvas,4,scale,0),canvasBackgroundStyle(canvas,4,scale));
 });
 test('integer repeat rectangles preserve fractional pitch and bound unusual output dimensions',()=>{
  for(const [w,h,width,height]of[[1920,1080,40,40],[3840,2160,80,80],[640,360,40,40],[1280,720,80,80]])assert.deepEqual(canvasBackgroundRepeatSize(canvas,canvasBackgroundGeometry(canvas,0,w,h)),{width,height});
@@ -33,7 +45,7 @@ test('independent raster has origin-centered soft dots, custom base color and a 
 });
 test('Stage paints pattern below all layers from timeline time and keeps solid or empty project behavior explicit',()=>{
  const p=createProject();p.canvas={...p.canvas,...canvas,backgroundPattern:'moving-dots'};
- const render=(time:number)=>renderToStaticMarkup(React.createElement(Stage,{project:p,time,playing:false,onSelect:()=>{},onImport:()=>{}}));
+ const render=(time:number)=>renderToStaticMarkup(React.createElement(Stage,{project:p,playhead:createPlayhead(time),playing:false,onSelect:()=>{},onImport:()=>{}}));
  const start=render(0),later=render(4);assert.match(start,/radial-gradient/);assert.notEqual(start,later);assert.equal(later,render(20));assert.match(start,/class="stage-empty" style="background:transparent/);
  delete p.canvas.backgroundPattern;assert.doesNotMatch(render(0),/radial-gradient/);assert.doesNotMatch(render(0),/style="background:transparent/);
 });

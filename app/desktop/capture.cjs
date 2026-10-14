@@ -4,9 +4,9 @@ const { pathToFileURL } = require('node:url');
 const { randomUUID } = require('node:crypto');
 const { captureDisplay, sourceMetadata, normalizedRect, buildSelection, sameDisplay, CaptureSelectionStore } = require('./capture-geometry.cjs');
 
-function createCaptureManager({ BrowserWindow, desktopCapturer, screen, ipcMain, session, systemPreferences, getMainWindow, origin, inventoryTimeoutMs = 15000 }) {
+function createCaptureManager({ BrowserWindow, desktopCapturer, screen, ipcMain, session, systemPreferences, getMainWindow, origin, inventoryTimeoutMs = 15000, listReuseMs = 10000, now = Date.now }) {
  const store = new CaptureSelectionStore();
- let epoch = 0, popup = null, disposed = false;
+ let epoch = 0, popup = null, disposed = false, listed = null;
  let lifetime = new AbortController();
  const requests = new Set();
  const isTrustedFrame = frame => {
@@ -28,12 +28,12 @@ function createCaptureManager({ BrowserWindow, desktopCapturer, screen, ipcMain,
    promise.then(value => finish(null, value), error => finish(error));
   });
  }
- async function inventory({ signal = lifetime.signal, afterSelection = false } = {}) {
+ async function inventory({ signal = lifetime.signal, afterSelection = false, types = ['screen','window'] } = {}) {
   signal.throwIfAborted();
   const displays = displayList();
   // Zero-size thumbnails avoid capturing or transmitting unselected screen/window images.
   let raw;
-  try { raw = await waitForInventory(desktopCapturer.getSources({ types: ['screen','window'], thumbnailSize: { width: 0, height: 0 }, fetchWindowIcons: false }), signal, afterSelection || screenPermission() === 'granted'); }
+  try { raw = await waitForInventory(desktopCapturer.getSources({ types, thumbnailSize: { width: 0, height: 0 }, fetchWindowIcons: false }), signal, afterSelection || screenPermission() === 'granted'); }
   catch (cause) {
    if (cause?.name === 'AbortError' || cause?.name === 'TimeoutError') throw cause;
    const status = screenPermission();
@@ -73,7 +73,8 @@ function createCaptureManager({ BrowserWindow, desktopCapturer, screen, ipcMain,
    const url = pathToFileURL(filename).href;
    const captureSession = session.fromPartition('sceneforge-capture-ui');
    captureSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
-   const options = region ? { ...display.bounds, frame: false, transparent: true, backgroundColor: '#00000000', hasShadow: false, resizable: false, movable: false, minimizable: false, maximizable: false, fullscreenable: false, skipTaskbar: true, alwaysOnTop: true, enableLargerThanScreen: true, acceptFirstMouse: true } : { width: 720, height: 600, minWidth: 520, minHeight: 400, parent: getMainWindow(), modal: true, title: 'Choose what to record', backgroundColor: '#fafafa' };
+   // A region overlay is a panel: it covers full-screen Spaces without the Dock hide/show transform.
+   const options = region ? { ...display.bounds, type: 'panel', frame: false, transparent: true, backgroundColor: '#00000000', hasShadow: false, resizable: false, movable: false, minimizable: false, maximizable: false, fullscreenable: false, skipTaskbar: true, alwaysOnTop: true, enableLargerThanScreen: true, acceptFirstMouse: true } : { width: 720, height: 600, minWidth: 520, minHeight: 400, parent: getMainWindow(), modal: true, title: 'Choose what to record', backgroundColor: '#fafafa' };
    const window = new BrowserWindow({ ...options, show: false, webPreferences: { preload: path.join(__dirname, 'capture-preload.cjs'), session: captureSession, contextIsolation: true, nodeIntegration: false, sandbox: true, devTools: false } });
    let value = null, failure = null, settled = false;
    const timeout = setTimeout(() => finish(null), 5 * 60 * 1000);
@@ -89,7 +90,7 @@ function createCaptureManager({ BrowserWindow, desktopCapturer, screen, ipcMain,
    window.setMenu(null);
    if (region) {
     window.setAlwaysOnTop(true, 'screen-saver');
-    window.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+    window.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true });
    }
    window.once('ready-to-show', () => {
     if (window.isDestroyed()) return;
@@ -109,8 +110,11 @@ function createCaptureManager({ BrowserWindow, desktopCapturer, screen, ipcMain,
   if (disposed || !isTrustedFrame(frame)) throw new Error('The capture window is no longer available.');
   cancel(); const current = epoch;
   const fresh = () => current === epoch && !disposed && isTrustedFrame(frame);
-  let list;
-  try { list = await inventory(); } catch (error) { if (!fresh()) return null; throw error; }
+  // The region overlay may open from the list the source picker just showed; the
+  // re-enumeration after the overlay still validates the source and display.
+  const reuse = options?.mode === 'region' && listed && now() - listed.at < listReuseMs ? listed.value : null;
+  let list = reuse, prompted = !options;
+  if (!list) { try { list = await inventory(); } catch (error) { if (!fresh()) return null; throw error; } }
   if (!fresh()) return null;
   if (!options) {
    options = await openPopup('sources', { sources: list.sources, displays: list.displays });
@@ -125,14 +129,17 @@ function createCaptureManager({ BrowserWindow, desktopCapturer, screen, ipcMain,
    if (!display || source.kind !== 'display') throw new Error('Choose an attached display for a region.');
    const initialRegion = options.initialRegion ? normalizedRect(options.initialRegion) : { x: 0.1, y: 0.1, width: 0.8, height: 0.8 };
    region = await openPopup('region', { display, initialRegion }, display);
-   if (!region || !fresh()) return null;
+   if (!region || !fresh()) return null; prompted = true;
   }
   const selected = buildSelection(source, list.displays, options.mode, region);
-  // Re-enumeration catches closed windows and display changes while the picker was open.
-  try { list = await inventory({ afterSelection: true }); } catch (error) { if (!fresh()) return null; throw error; }
-  if (!fresh()) return null;
-  if (!list.sources.some(s => s.id === source.id)) throw new Error('That screen or window closed before capture started.');
-  if (display && !sameDisplay(display, list.displays.find(d => d.id === display.id))) throw new Error('The display changed. Please choose your capture area again.');
+  // Re-enumeration catches closed windows and display changes while a picker was open.
+  // Without one it would repeat the enumeration that just ran; capture re-checks anyway.
+  if (prompted) {
+   try { list = await inventory({ afterSelection: true }); } catch (error) { if (!fresh()) return null; throw error; }
+   if (!fresh()) return null;
+   if (!list.sources.some(s => s.id === source.id)) throw new Error('That screen or window closed before capture started.');
+   if (display && !sameDisplay(display, list.displays.find(d => d.id === display.id))) throw new Error('The display changed. Please choose your capture area again.');
+  }
   return arm ? store.arm(selected, frame) : { ...selected, token: randomUUID() };
  }
  async function restore(saved, frame) {
@@ -144,7 +151,7 @@ function createCaptureManager({ BrowserWindow, desktopCapturer, screen, ipcMain,
   cancel(); const current = epoch;
   const fresh = () => current === epoch && !disposed && isTrustedFrame(frame);
   let list;
-  try { list = await inventory({ afterSelection: true }); } catch (error) { if (!fresh()) return null; throw error; }
+  try { list = await inventory({ afterSelection: true, types: [saved.kind === 'window' ? 'window' : 'screen'] }); } catch (error) { if (!fresh()) return null; throw error; }
   if (!fresh()) return null;
   if (screenPermission() !== 'granted') throw new Error('Screen recording access changed. Check Mac setup before restoring the preview.');
   const source = list.sources.find(source => source.id === saved.sourceId);
@@ -172,7 +179,7 @@ function createCaptureManager({ BrowserWindow, desktopCapturer, screen, ipcMain,
    if (!selection || !isTrustedFrame(request.frame)) return reply(null);
    const current = epoch;
    pending = { token: selection.token, controller: new AbortController() }; requests.add(pending);
-   const list = await inventory({ signal: pending.controller.signal, afterSelection: true });
+   const list = await inventory({ signal: pending.controller.signal, afterSelection: true, types: [selection.kind === 'window' ? 'window' : 'screen'] });
    if (pending.controller.signal.aborted || current !== epoch || !isTrustedFrame(request.frame)) return reply(null);
    const source = list.raw.find(source => source.id === selection.sourceId);
    if (!source) return reply(null);
@@ -184,18 +191,18 @@ function createCaptureManager({ BrowserWindow, desktopCapturer, screen, ipcMain,
   } catch { reply(null); }
   finally { if (pending) requests.delete(pending); }
  }
- const onDisplaysChanged = () => cancel();
+ const onDisplaysChanged = () => { listed = null; cancel(); };
  screen.on('display-added', onDisplaysChanged);
  screen.on('display-removed', onDisplaysChanged);
  screen.on('display-metrics-changed', onDisplaysChanged);
  return {
-  async list(event) { verify(event); const { displays, sources } = await inventory(); verify(event); return { displays, sources }; },
+  async list(event) { verify(event); const value = await inventory(); verify(event); listed = { at: now(), value }; return { displays: value.displays, sources: value.sources }; },
   choose(event, options) { verify(event); return select(options, event.senderFrame, true); },
   restore(event, saved) { verify(event); return restore(saved, event.senderFrame); },
   cancel(event, token) { verify(event); if (token !== undefined && typeof token !== 'string') throw new Error('Invalid capture token.'); cancel(token); },
   handleRequest,
   reset: () => cancel(),
-  dispose() { disposed = true; cancel(); for (const name of ['display-added','display-removed','display-metrics-changed']) screen.removeListener(name, onDisplaysChanged); ipcMain.removeHandler('capture-ui-data'); ipcMain.removeHandler('capture-ui-finish'); }
+  dispose() { disposed = true; listed = null; cancel(); for (const name of ['display-added','display-removed','display-metrics-changed']) screen.removeListener(name, onDisplaysChanged); ipcMain.removeHandler('capture-ui-data'); ipcMain.removeHandler('capture-ui-finish'); }
  };
 }
 module.exports = { createCaptureManager };

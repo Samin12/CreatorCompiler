@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, shell, desktopCapturer, screen, session, utilityProcess, Menu, globalShortcut, systemPreferences } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, desktopCapturer, screen, session, utilityProcess, Menu, globalShortcut, systemPreferences, nativeTheme } = require('electron');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
 const fs = require('node:fs');
@@ -116,22 +116,38 @@ app.setName('SceneForge');
 const gotLock=app.requestSingleInstanceLock();
 if(!gotLock)app.quit();
 app.on('second-instance',()=>{if(mainWindow){mainWindow.show();mainWindow.focus();}});
+// /api/ready answers as soon as the service listens (no media probing); an older
+// already-running service only has /api/health. A port holder that never answers
+// times out so the start deadline still applies.
+async function serviceAnswers(){
+ for(const route of ['/api/ready','/api/health']){const r=await fetch(base+route,{signal:AbortSignal.timeout(route==='/api/ready'?2000:10000)});if(route==='/api/ready'&&r.status===404){await r.body?.cancel();continue;}const health=await r.json();return r.ok&&health.application==='SceneForge'&&health.version==='0.1.0';}
+ return false;
+}
 async function startService(){
- try {const r=await fetch(base+'/api/health');const health=await r.json();if(r.ok&&health.application==='SceneForge'&&health.version==='0.1.0')return;}catch{}
+ try {if(await serviceAnswers())return;}catch{}
  const entry=path.join(projectRoot,'server-dist/index.mjs');
  const env=runtimeEnvironment({root:projectRoot,data:path.join(app.getPath('userData'),'studio'),port:PORT});
  if(fs.existsSync(entry))service=utilityProcess.fork(entry,[],{env,stdio:'pipe',serviceName:'SceneForge media service'});
  else service=spawn(process.env.SCENEFORGE_NODE||process.env.npm_node_execpath||'node',['--import','tsx',path.join(projectRoot,'server/index.ts')],{cwd:projectRoot,env,stdio:'pipe'});
  ownService=true;
  service.stdout?.on('data',d=>console.log(d.toString()));service.stderr?.on('data',d=>console.error(d.toString()));
- for(let n=0;n<120;n++){try{const r=await fetch(base+'/api/health');const health=await r.json();if(r.ok&&health.application==='SceneForge'&&health.version==='0.1.0')return;}catch{}await new Promise(r=>setTimeout(r,250));}
+ for(const deadline=Date.now()+30000;Date.now()<deadline;){try{if(await serviceAnswers())return;}catch{}await new Promise(r=>setTimeout(r,40));}
  throw new Error('The local media service did not start. Reopen SceneForge and check that port 4174 is available.');
 }
+// Hidden/minimized editor: the renderer pauses decorative work, the recorder stops previews.
+// Focus re-checks too, so a stale value cannot outlive the window coming forward.
+let mainVisibility=null;
+function publishMainVisibility(){
+ if(!mainWindow||mainWindow.isDestroyed())return;const visible=mainWindow.isVisible()&&!mainWindow.isMinimized();if(visible===mainVisibility)return;mainVisibility=visible;
+ mainWindow.webContents.send('main-window-visibility',visible);nativeRecording?.setPreviewEnabled?.(visible);
+}
 app.whenReady().then(async()=>{
- try{await startService();}catch(e){dialog.showErrorBox('SceneForge could not start',e.message);app.quit();return;}
- mainWindow=new BrowserWindow({width:1480,height:960,minWidth:1000,minHeight:680,title:'SceneForge',backgroundColor:'#f7f7fa',titleBarStyle:'hiddenInset',trafficLightPosition:{x:16,y:20},webPreferences:{preload:path.join(__dirname,'preload.cjs'),contextIsolation:true,nodeIntegration:false,sandbox:true,backgroundThrottling:false}});
+ // The window and its renderer process start while the service boots; the page
+ // itself is served by the service, so it loads once the service answers.
+ const serviceReady=startService();serviceReady.catch(()=>{});
+ mainWindow=new BrowserWindow({width:1480,height:960,minWidth:1000,minHeight:680,title:'SceneForge',show:false,backgroundColor:nativeTheme.shouldUseDarkColors?'#0a0a0a':'#f7f7fa',titleBarStyle:'hiddenInset',trafficLightPosition:{x:16,y:20},webPreferences:{preload:path.join(__dirname,'preload.cjs'),contextIsolation:true,nodeIntegration:false,sandbox:true,backgroundThrottling:false}});
  const trusted=(url)=>{try{return new URL(url).origin===base;}catch{return false;}};
- session.defaultSession.setPermissionRequestHandler((contents,permission,callback)=>callback(!quitting&&trusted(contents.getURL())&&['media','display-capture'].includes(permission)));
+ session.defaultSession.setPermissionRequestHandler((contents,permission,callback,details)=>callback(!quitting&&(trusted(contents.getURL())&&['media','display-capture'].includes(permission)||Boolean(recordingHud?.allowsCamera(contents,permission,details)))));
  captureManager=createCaptureManager({BrowserWindow,desktopCapturer,screen,ipcMain,session,systemPreferences,getMainWindow:()=>mainWindow,origin:base});
  // The system picker bypasses this handler. Our explicit source choice still requires
  // macOS Screen Recording consent, and never falls back to a different source.
@@ -140,9 +156,9 @@ app.whenReady().then(async()=>{
  ipcMain.handle('choose-capture-source',(e,options)=>captureManager.choose(e,options));
  ipcMain.handle('restore-capture-source',(e,selection)=>captureManager.restore(e,selection));
  ipcMain.handle('cancel-capture-selection',(e,token)=>captureManager.cancel(e,token));
- recordingHud=createRecordingHud({BrowserWindow,ipcMain,screen,getMainWindow:()=>mainWindow,verifyMain:verifyDesktopSender});
+ recordingHud=createRecordingHud({BrowserWindow,ipcMain,screen,getMainWindow:()=>mainWindow,verifyMain:verifyDesktopSender,onMainVisibility:publishMainVisibility});
  captureBorder=createCaptureBorder({BrowserWindow});
- nativeRecording=createNativeRecordingManager({ipcMain,getMainWindow:()=>mainWindow,origin:base,dataDir:path.join(app.getPath('userData'),'studio'),onState:event=>captureBorder.update(event)});
+ nativeRecording=createNativeRecordingManager({ipcMain,getMainWindow:()=>mainWindow,origin:base,dataDir:path.join(app.getPath('userData'),'studio'),onState:event=>captureBorder.update(event),onPrepare:event=>{if(event.recordVideo)captureBorder.prewarm();}});
  const verify=(e)=>{if(!trusted(e.senderFrame.url))throw new Error('Untrusted window');};
  ipcMain.handle('shortcut-context',(e,value)=>{verify(e);if(e.sender!==mainWindow.webContents)throw new Error('Untrusted shortcut sender');return setShortcutContext(value);});
  ipcMain.handle('media-permissions',e=>{verifyDesktopSender(e);return getMediaPermissions();});
@@ -154,6 +170,9 @@ app.whenReady().then(async()=>{
  mainWindow.webContents.on('did-start-loading',()=>{captureManager.reset();recordingHud.end();void nativeRecording.reset?.();});
  mainWindow.webContents.on('render-process-gone',resetShortcutContext);
  mainWindow.webContents.on('render-process-gone',()=>{captureManager.reset();recordingHud.end();void nativeRecording.reset?.();});
+ mainWindow.webContents.on('did-start-loading',()=>{mainVisibility=null;});
+ for(const name of ['show','hide','minimize','restore','focus'])mainWindow.on(name,publishMainVisibility);
+ mainWindow.once('ready-to-show',()=>{if(mainWindow&&!mainWindow.isDestroyed())mainWindow.show();});
  mainWindow.on('closed',()=>{recordingHud.end({restoreMain:false});void nativeRecording.reset?.();captureManager.reset();clearGlobalShortcuts();shortcutContext=emptyShortcutContext();mainWindow=null;});
  ipcMain.handle('choose-media',async e=>{verify(e);const result=await dialog.showOpenDialog(mainWindow,{title:'Import media',properties:['openFile','multiSelections'],filters:[{name:'Video, audio and images',extensions:['mp4','mov','webm','mkv','wav','mp3','m4a','aac','flac','png','jpg','jpeg','webp','gif']} ]});return result.canceled?[]:result.filePaths;});
  ipcMain.handle('choose-borumi',async e=>{verify(e);const result=await dialog.showOpenDialog(mainWindow,{title:'Import a Borumi project',properties:['openFile','openDirectory','treatPackageAsDirectory'],filters:[{name:'Borumi project',extensions:['bmproj','bmprojbundle']}]});return result.canceled?null:result.filePaths[0];});
@@ -161,7 +180,9 @@ app.whenReady().then(async()=>{
  mainWindow.webContents.setWindowOpenHandler(({url})=>{if(/^https?:/.test(url))shell.openExternal(url);return {action:'deny'};});
  mainWindow.webContents.on('will-navigate',(e,url)=>{if(!trusted(url)){e.preventDefault();if(/^https?:/.test(url))shell.openExternal(url);}});
  installMenu();
- await mainWindow.loadURL(base);
+ try{await serviceReady;}catch(e){if(quitting)return;dialog.showErrorBox('SceneForge could not start',e.message);if(mainWindow&&!mainWindow.isDestroyed())mainWindow.destroy();app.quit();return;}
+ if(!mainWindow||mainWindow.isDestroyed())return;
+ try{await mainWindow.loadURL(base);}finally{if(mainWindow&&!mainWindow.isDestroyed()&&!mainWindow.isVisible())mainWindow.show();}
 });
 app.on('window-all-closed',()=>app.quit());
 app.on('before-quit',e=>{if(quitting)return;e.preventDefault();quitting=true;captureBorder?.clear();recordingHud?.dispose();captureManager?.dispose();clearGlobalShortcuts();Promise.resolve(nativeRecording?.dispose()).catch(console.error).finally(()=>{if(ownService)service?.kill();app.quit();});});

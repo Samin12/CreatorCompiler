@@ -1,31 +1,58 @@
-import {promises as fs,createReadStream} from 'node:fs';
+import {promises as fs} from 'node:fs';
 import {randomUUID,createHash} from 'node:crypto';
 import path from 'node:path';
 import {spawn} from 'node:child_process';
 import {UPLOAD_DIR,CACHE_DIR,atomicJSON,safeId,registerMedia} from './storage.js';
-import {probeMedia} from './media.js';
-import {isAudioRole,type AudioRole} from '../shared/types.js';
+import {probeMedia,waveform} from './media.js';
+import {captureActivity} from './capture-activity.js';
+import {isAudioRole,type AudioRole,type Media} from '../shared/types.js';
 const directory=path.join(UPLOAD_DIR,'recordings');
 const queues=new Map<string,Promise<unknown>>();
 async function serial<T>(id:string,run:()=>Promise<T>){const old=queues.get(id)||Promise.resolve();const task=old.catch(()=>{}).then(run);queues.set(id,task);try{return await task;}finally{if(queues.get(id)===task)queues.delete(id);}}
-export async function createRecording(name:string,mimeType:string,audioRole?:AudioRole){if(!/^(video|audio)\/webm/.test(mimeType))throw new Error('Only WebM recording chunks are supported');if(audioRole!==undefined&&!isAudioRole(audioRole))throw new Error('Invalid recording audio role');const id=randomUUID(),folder=path.join(directory,id);await fs.mkdir(folder,{recursive:true});await atomicJSON(path.join(folder,'metadata.json'),{id,name:String(name||'Recording').slice(0,200),mimeType,...(audioRole?{audioRole}:{}),startedAt:new Date().toISOString(),status:'recording'});return{id};}
+// MediaRecorder MP4 is fragmented, so its chunks concatenate byte-wise exactly like streamed WebM.
+const isMP4=(mimeType:unknown)=>typeof mimeType==='string'&&/^(video|audio)\/mp4(?=$|;)/.test(mimeType);
+export async function createRecording(name:string,mimeType:string,audioRole?:AudioRole){if(typeof mimeType!=='string'||!/^(video|audio)\/(webm|mp4)(?=$|;)/.test(mimeType))throw new Error('Only WebM or MP4 recording chunks are supported');if(audioRole!==undefined&&!isAudioRole(audioRole))throw new Error('Invalid recording audio role');const id=randomUUID(),folder=path.join(directory,id);await fs.mkdir(folder,{recursive:true});await atomicJSON(path.join(folder,'metadata.json'),{id,name:String(name||'Recording').slice(0,200),mimeType,...(audioRole?{audioRole}:{}),startedAt:new Date().toISOString(),status:'recording'});captureActivity.open(id,true);return{id};}
 export async function appendRecording(id:string,index:number,bytes:Buffer){return serial(safeId(id),async()=>{if(!Number.isSafeInteger(index)||index<0||index>1_000_000||!bytes.length)throw new Error('Invalid recording chunk');const folder=path.join(directory,id);const metadata=JSON.parse(await fs.readFile(path.join(folder,'metadata.json'),'utf8'));if(metadata.status==='complete')throw new Error('Recording is already complete');const file=path.join(folder,String(index).padStart(9,'0')+'.chunk');const digest=createHash('sha256').update(bytes).digest('hex');
  try{const previous=await fs.readFile(file);if(createHash('sha256').update(previous).digest('hex')!==digest)throw new Error('A different chunk already occupies this index');return{ok:true,index};}catch(e){if((e as NodeJS.ErrnoException).code!=='ENOENT')throw e;}
  if(index>0)await fs.access(path.join(folder,String(index-1).padStart(9,'0')+'.chunk'));
  const disk=await fs.statfs(folder);if(disk.bavail*disk.bsize<bytes.length+50*1024*1024)throw new Error('Not enough disk space to safely continue recording');
- const temp=file+'.tmp';await fs.writeFile(temp,bytes,{mode:0o600});await fs.rename(temp,file);return{ok:true,index};});}
-export async function finishRecording(id:string){return serial(safeId(id),async()=>{
+ const temp=file+'.tmp';await fs.writeFile(temp,bytes,{mode:0o600});await fs.rename(temp,file);captureActivity.open(id);return{ok:true,index};});}
+/** Losslessly remuxes the ordered chunks. cat streams them straight into ffmpeg's stdin, one open file at a time
+ * (the concat: protocol opens every chunk at once and can exceed the descriptor limit), with no intermediate copy. */
+export async function remuxChunks(folder:string,chunks:string[],output:string[],batch=1000){
+ const child=spawn(process.env.SCENEFORGE_FFMPEG||'ffmpeg',['-nostdin','-v','error','-y','-i','pipe:0','-map','0','-c','copy',...output],{cwd:folder,stdio:['pipe','ignore','pipe']});
+ let error='',copyError:Error|undefined;child.stderr.on('data',d=>{error=(error+d).slice(-6000);});child.stdin.on('error',()=>{});
+ const exited=new Promise<number|null>((resolve,reject)=>{child.once('error',reject);child.once('close',resolve);});exited.catch(()=>{});
+ try{for(let i=0;i<chunks.length&&child.exitCode===null&&child.signalCode===null;i+=batch){const cat=spawn('/bin/cat',chunks.slice(i,i+batch),{cwd:folder,stdio:['ignore',child.stdin,'ignore']});const code=await new Promise<number|null>((resolve,reject)=>{cat.once('error',reject);cat.once('close',resolve);});if(code){copyError=Error('Recording chunks could not be read');break;}}}
+ catch(e){copyError=e as Error;}finally{child.stdin.end();}
+ const code=await exited;if(code)throw new Error(error||'Recording finalization failed');if(copyError)throw copyError;
+}
+let warming=Promise.resolve();
+/** Warms an audio take's review waveform in the background, one at a time so probes keep a free slot. It waits while any
+ * capture is open (the next take may already be counting down) but not for the settle period, which exists to favour take review. */
+export function warmTakeWaveform(media:Media){if(media.kind==='audio')warming=warming.then(()=>captureActivity.idle(undefined,false)).then(()=>waveform(media,CACHE_DIR)).then(()=>{},()=>{});}
+export const waveformWarmup=()=>warming;
+async function removeChunks(folder:string,files:string[]){for(const file of files)await fs.rm(path.join(folder,file),{force:true}).catch(()=>{});}
+// The lease closes inside the serial task, after any queued chunk has renewed it, so a late append cannot reopen it.
+export async function finishRecording(id:string){safeId(id);return serial(id,async()=>{try{
  const folder=path.join(directory,id),metadata=JSON.parse(await fs.readFile(path.join(folder,'metadata.json'),'utf8'));
  if(metadata.media)return metadata.media;
  const chunks=(await fs.readdir(folder)).filter(f=>f.endsWith('.chunk')).sort();if(!chunks.length)throw new Error('No completed recording chunks available');
- const final=path.join(folder,'take.webm'),raw=path.join(folder,'capture.webm'),temp=path.join(folder,'take.webm.tmp');
- const output=await fs.open(raw,'w',0o600);
- try{for(const chunk of chunks)for await(const data of createReadStream(path.join(folder,chunk)))await output.writeFile(data);await output.sync();}finally{await output.close();}
- // Streaming MediaRecorder WebM omits Duration and seek cues. A lossless remux writes both.
- await new Promise<void>((resolve,reject)=>{const child=spawn(process.env.SCENEFORGE_FFMPEG||'ffmpeg',['-nostdin','-v','error','-y','-i',raw,'-map','0','-c','copy','-f','webm',temp]);let error='';child.stderr.on('data',d=>{error=(error+d).slice(-6000);});child.once('error',reject);child.once('close',code=>code?reject(new Error(error||'Recording finalization failed')):resolve());});
+ const mp4=isMP4(metadata.mimeType),final=path.join(folder,mp4?'take.mp4':'take.webm'),temp=final+'.tmp';
+ // Streaming MediaRecorder WebM omits Duration and seek cues; fragmented MP4 has no front index. A lossless remux writes both.
+ await remuxChunks(folder,chunks,[...(mp4?['-movflags','+faststart','-f','mp4']:['-f','webm']),path.basename(temp)]);
  const media=await probeMedia(temp,CACHE_DIR);if(!Number.isFinite(media.duration)||media.duration<=0)throw new Error('The recorded take contains no playable duration');
  await fs.rename(temp,final);media.path=final;media.name=metadata.name;if(isAudioRole(metadata.audioRole))media.audioRole=metadata.audioRole;await registerMedia(media);
  await atomicJSON(path.join(folder,'metadata.json'),{...metadata,status:'complete',media,completedAt:new Date().toISOString()});
- for(const chunk of chunks)await fs.rm(path.join(folder,chunk));await fs.rm(raw,{force:true});return media;
-});}
+ // Completed folders are never recovered, so chunk cleanup and the review waveform run after the response.
+ void removeChunks(folder,[...chunks,'capture.webm']);warmTakeWaveform(media);
+ return media;
+}finally{captureActivity.close(id);}});}
+/** Startup cleanup: removes chunks left behind in completed recordings when the service stopped before cleanup finished,
+ * and deletes abandoned sessions that never received a chunk (a start cancelled during the countdown), which recovery ignores. */
+export async function cleanupRecordings(abandonedMs=5*60*1000){const ids=await fs.readdir(directory).catch(()=>[]);for(const id of ids){try{safeId(id);await serial(id,async()=>{
+ const folder=path.join(directory,id),meta=JSON.parse(await fs.readFile(path.join(folder,'metadata.json'),'utf8')),files=await fs.readdir(folder);
+ if(meta.status==='complete'&&meta.media)await removeChunks(folder,files.filter(f=>f.endsWith('.chunk')||f==='capture.webm'));
+ else if(meta.status!=='complete'&&files.every(f=>f==='metadata.json'||f.endsWith('.tmp'))&&Date.now()-(await fs.stat(path.join(folder,'metadata.json'))).mtimeMs>abandonedMs)await fs.rm(folder,{recursive:true,force:true});
+});}catch{}}}
 export async function recoverableRecordings(){const ids=await fs.readdir(directory).catch(()=>[]);const results=[];for(const id of ids){try{const folder=path.join(directory,id);const meta=JSON.parse(await fs.readFile(path.join(folder,'metadata.json'),'utf8'));if(meta.status!=='complete'){const count=(await fs.readdir(folder)).filter(f=>f.endsWith('.chunk')).length;if(count)results.push({...meta,chunks:count});}}catch{}}return results;}

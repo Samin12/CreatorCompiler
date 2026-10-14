@@ -1,5 +1,5 @@
-export type RecordingHudState={status?:'starting'|'recording'|'paused'|'saving'|'idle';elapsed?:number;cameraFrame?:string|null};
-/** Serializes a single HUD's open/update/close lifecycle without retaining frames. */
+export type RecordingHudState={status?:'starting'|'recording'|'paused'|'saving'|'idle';elapsed?:number;countdown?:number|null};
+/** Serializes a single HUD's open/update/close lifecycle, coalescing pending updates. */
 export class RecordingHudSession {
  private closed=false;
  private begun=false;

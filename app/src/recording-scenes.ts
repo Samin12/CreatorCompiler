@@ -1,5 +1,6 @@
 import {clipDuration,clipEffectTiming,makeId,projectDuration,type CursorPoint,type Project,type Scene} from '../shared/types';
 import {cutTimelineRange} from '../shared/timeline-edits';
+import {plainClone} from './project-draft';
 const EPS=1e-7;
 function timelineEnd(p:Project){const ends=[projectDuration(p),...p.captions.map(c=>c.end),...p.zooms.map(z=>z.start+z.duration),...p.cursor.points.map(c=>c.time)];if(ends.some(n=>!Number.isFinite(n)||n<0))throw Error('Timeline timing is invalid. Fix it before arranging recording scenes.');return Math.max(...ends);}
 function validateScenes(p:Project){
@@ -21,7 +22,7 @@ export function addRecordingScene(p:Project,afterId?:string):string {
 }
 /** Script splitting adds an empty scene; captured footage and saved takes stay with their scene. */
 export function splitRecordingSceneScript(p:Project,id:string,position:number):string {
- const draft=structuredClone(p),scene=draft.scenes[sceneIndex(draft,id)];
+ const draft=plainClone(p),scene=draft.scenes[sceneIndex(draft,id)];
  if(!Number.isInteger(position)||position<0||position>scene.script.length)throw Error('The script cursor moved. Place it in the script and try again.');
  const nextId=addRecordingScene(draft,id),next=draft.scenes.find(s=>s.id===nextId)!;
  next.script=scene.script.slice(position);scene.script=scene.script.slice(0,position);
@@ -43,7 +44,7 @@ export function mergeRecordingSceneScriptBackward(p:Project,id:string):{id:strin
 }
 /** Remove scene timeline content and its take records; source assets are retained. */
 export function deleteRecordingScene(p:Project,id:string):void {
- const draft=structuredClone(p);validateScenes(draft);const index=sceneIndex(draft,id),scene=draft.scenes[index];
+ const draft=plainClone(p);validateScenes(draft);const index=sceneIndex(draft,id),scene=draft.scenes[index];
  const end=index===draft.scenes.length-1?Math.max(scene.start+scene.duration,timelineEnd(draft)):scene.start+scene.duration;
  const takes=new Set((draft.recordedTakes??[]).filter(t=>t.sceneId===id).map(t=>t.id));
  if(draft.clips.some(c=>c.recordingTakeId&&takes.has(c.recordingTakeId)&&(c.start<scene.start-EPS||c.start+clipDuration(c)>end+EPS)))throw Error('This scene has take clips outside its boundary. Move or split those clips before deleting the scene.');
@@ -68,7 +69,7 @@ export function moveRecordingScene(p:Project,id:string,beforeId?:string):void {
  if(id===beforeId)return;
  const order=[...p.scenes],moved=order.splice(from,1)[0];order.splice(beforeId===undefined?order.length:order.findIndex(s=>s.id===beforeId),0,moved);
  if(order.every((s,i)=>s.id===p.scenes[i].id))return;
- const draft=structuredClone(p),end=timelineEnd(p),first=p.scenes[0]?.start??0;
+ const draft=plainClone(p),end=timelineEnd(p),first=p.scenes[0]?.start??0;
  const blocks:Block[]=p.scenes.map((s,i)=>({scene:s,start:s.start,end:p.scenes[i+1]?.start??Math.max(s.start+s.duration,end),destination:0}));
  let next=first;for(const scene of order){const block=blocks.find(b=>b.scene.id===scene.id)!;block.destination=next;next+=block.end-block.start;}
  const portions=[...(first>0?[{start:0,end:first,destination:0}]:[]),...blocks.filter(b=>b.end>b.start+EPS)];

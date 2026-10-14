@@ -1,19 +1,30 @@
 import { spawn } from 'node:child_process';
 import { access, mkdir, readFile, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
+import { setPriority } from 'node:os';
 import { constants } from 'node:fs';
 import { makeId, clipDuration, narrationPriority, type AISettings, type AISuggestion, type Caption, type Media, type Project } from '../shared/types.js';
 
 async function executable(name:string):Promise<string|undefined>{
  for(const entry of name.includes('/')?[name]:(process.env.PATH??'').split(path.delimiter).map(p=>path.join(p,name)))try{await access(entry,constants.X_OK);return entry}catch{}
 }
-async function run(command:string,args:string[],timeout=30*60*1000,signal?:AbortSignal):Promise<{stdout:string;stderr:string}>{
+// Automatic work runs at a lower CPU priority only. Background QoS (taskpolicy -b) also throttles disk I/O,
+// which can starve even the worker's own start-up for minutes while other I/O is busy.
+const BACKGROUND_NICE=10;
+/** While `remaining()` is positive (an open capture), a held worker is stopped with SIGSTOP and its deadline frozen. */
+export interface WorkHold {remaining():number;idle(signal?:AbortSignal):Promise<void>;changed(signal?:AbortSignal):Promise<void>}
+async function run(command:string,args:string[],timeout=30*60*1000,signal?:AbortSignal,background=false,hold?:WorkHold):Promise<{stdout:string;stderr:string}>{
  signal?.throwIfAborted();
- return new Promise((resolve,reject)=>{let stdout='',stderr='',failure:Error|undefined,killTimer:NodeJS.Timeout|undefined;const child=spawn(command,args,{stdio:['ignore','pipe','pipe']});
- const stop=(error:Error)=>{failure=error;child.kill('SIGTERM');killTimer=setTimeout(()=>child.kill('SIGKILL'),1500);killTimer.unref();};
+ return new Promise((resolve,reject)=>{let stdout='',stderr='',failure:Error|undefined,killTimer:NodeJS.Timeout|undefined,paused=false,left=timeout;const child=spawn(command,args,{stdio:['ignore','pipe','pipe']});
+ if(background&&child.pid)try{setPriority(child.pid,BACKGROUND_NICE);}catch{}
+ const stop=(error:Error)=>{failure=error;if(paused){paused=false;child.kill('SIGCONT');}child.kill('SIGTERM');killTimer=setTimeout(()=>child.kill('SIGKILL'),1500);killTimer.unref();};
  const abort=()=>stop(new Error('Transcription cancelled.'));signal?.addEventListener('abort',abort,{once:true});
- const timer=setTimeout(()=>stop(new Error(`${path.basename(command)} timed out.`)),timeout);
- const cleanup=()=>{clearTimeout(timer);if(killTimer)clearTimeout(killTimer);signal?.removeEventListener('abort',abort);};
+ const expire=()=>stop(new Error(`${path.basename(command)} timed out.`));let deadline=Date.now()+timeout,timer=setTimeout(expire,timeout);
+ const pause=()=>{if(paused||failure)return;paused=true;clearTimeout(timer);left=deadline-Date.now();child.kill('SIGSTOP');};
+ const resume=()=>{if(!paused)return;paused=false;child.kill('SIGCONT');deadline=Date.now()+left;timer=setTimeout(expire,left);};
+ const holding=new AbortController();
+ if(hold)void (async()=>{while(!holding.signal.aborted){if(hold.remaining()>0){pause();await hold.idle(holding.signal);resume();}else await hold.changed(holding.signal);}})().catch(()=>{});
+ const cleanup=()=>{clearTimeout(timer);if(killTimer)clearTimeout(killTimer);signal?.removeEventListener('abort',abort);holding.abort();};
  child.stdout.on('data',d=>{stdout=(stdout+d).slice(-8_000_000)});child.stderr.on('data',d=>{stderr=(stderr+d).slice(-8_000_000)});child.on('error',e=>{cleanup();reject(e)});child.on('close',code=>{cleanup();failure?reject(failure):code===0?resolve({stdout,stderr}):reject(new Error(`${path.basename(command)} failed (${code}): ${stderr.slice(-1200)}`))})})
 }
 export async function transcriptionCapabilities(){const command=await executable('whisper-cli');return {local:!!command,command,providers:['local','openai','openai-compatible','elevenlabs']}}
@@ -50,7 +61,8 @@ function providerUrl(settings:AISettings,route:string):string{
  if(url.protocol!=='https:'&&!(url.protocol==='http:'&&['localhost','127.0.0.1','[::1]'].includes(url.hostname)))throw new Error('Provider URL must use HTTPS or local HTTP.');return url.href;
 }
 /** Returns source-media times. The caller maps these through each timeline clip. */
-export async function transcribe(media:Media,settings:AISettings,workDir:string,options:{signal?:AbortSignal;progress?:(fraction:number)=>void}={}):Promise<{captions:Caption[];provider:string}>{
+/** `background` runs automatic work at background QoS with fewer threads, suspended while `hold` is active; `prepared` marks a validated mono 16 kHz PCM16 WAV that needs no conversion. */
+export async function transcribe(media:Media,settings:AISettings,workDir:string,options:{signal?:AbortSignal;progress?:(fraction:number)=>void;background?:boolean;hold?:WorkHold;prepared?:boolean}={}):Promise<{captions:Caption[];provider:string}>{
  options.signal?.throwIfAborted();
  if(media.kind==='image'||media.hasAudio===false)throw new Error('This media has no audio track.');
  const ffmpeg=await executable('ffmpeg');if(!ffmpeg)throw new Error('FFmpeg is required to prepare audio for transcription.');
@@ -62,10 +74,13 @@ export async function transcribe(media:Media,settings:AISettings,workDir:string,
   try{if(!(await stat(model)).isFile())throw new Error()}catch{throw new Error('Local Whisper model file is missing. Set a valid GGML model path in AI settings.')}
  }else if(!settings.apiKey&&settings.provider!=='openai-compatible')throw new Error('Add your own provider API key in AI settings before cloud transcription.');
  await mkdir(workDir,{recursive:true});const dir=path.join(workDir,`transcribe-${makeId()}`);await mkdir(dir);const audio=path.join(dir,'audio.wav');
+ // Background QoS with two threads runs roughly 2.5x slower, so automatic work gets a proportionally longer deadline.
+ const limit=(options.background?3:1)*30*60*1000;
  try{
-  await run(ffmpeg,['-hide_banner','-loglevel','error','-nostdin','-i',media.path,'-vn','-ac','1','-ar','16000','-c:a','pcm_s16le',audio],30*60*1000,options.signal);options.progress?.(.2);
+  const input=options.prepared&&settings.provider==='local'?media.path:audio;
+  if(input===audio)await run(ffmpeg,['-hide_banner','-loglevel','error','-nostdin','-i',media.path,'-vn','-ac','1','-ar','16000','-c:a','pcm_s16le',audio],limit,options.signal,options.background,options.hold);options.progress?.(.2);
   if(settings.provider==='local'){
-   const output=path.join(dir,'transcript');await run(command!,['-m',model,'-f',audio,'-l',settings.language||'auto','-t','4','-ojf','-of',output,'-ml','42','-sow','-np'],30*60*1000,options.signal);options.progress?.(.95);
+   const output=path.join(dir,'transcript');await run(command!,['-m',model,'-f',input,'-l',settings.language||'auto','-t',options.background?'2':'4','-ojf','-of',output,'-ml','42','-sow','-np'],limit,options.signal,options.background,options.hold);options.progress?.(.95);
    return {captions:parseTranscription(JSON.parse(await readFile(`${output}.json`,'utf8'))),provider:'local whisper.cpp'};
   }
   const data=await readFile(audio);if(data.byteLength>24_000_000)throw new Error('Cloud transcription input exceeds the current 24 MB upload limit. Use local transcription or transcribe a shorter media file.');

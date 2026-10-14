@@ -4,7 +4,8 @@ import type {AudioRole} from '../shared/types';
 export type CaptureKind = 'camera' | 'microphone' | 'screen';
 export type PreviewState = {status:'off'|'loading'|'live'|'ended'|'error';stream:MediaStream|null;error:string|null;key:string};
 export type PreviewSnapshot = Record<CaptureKind,PreviewState>;
-export type CaptureRequest = {kind:CaptureKind;deviceId?:string;width?:number;height?:number;frameRate?:number;systemAudio?:boolean;echoCancellation?:boolean;noiseSuppression?:boolean;sourceId?:string;crop?:NormalizedRegion};
+/** preview: limits for a screen stream that is only displayed, never recorded (native capture records the screen). */
+export type CaptureRequest = {kind:CaptureKind;deviceId?:string;width?:number;height?:number;frameRate?:number;systemAudio?:boolean;echoCancellation?:boolean;noiseSuppression?:boolean;sourceId?:string;crop?:NormalizedRegion;preview?:{width?:number;height?:number;frameRate:number}};
 export type MediaAccess = Pick<MediaDevices,'getUserMedia'|'getDisplayMedia'>;
 const empty = ():PreviewState => ({status:'off',stream:null,error:null,key:''});
 /** Browser capture promises cannot be aborted. Settle our waiter, then release any late result. */
@@ -51,7 +52,7 @@ export class CapturePreviewManager {
    let stream:MediaStream;
    try {
     controller.signal.throwIfAborted();
-    const acquiring=kind==='screen'?this.access.getDisplayMedia({video:{frameRate:{ideal:request.frameRate||30,max:60}},audio:Boolean(request.systemAudio)}):kind==='camera'?this.access.getUserMedia({video:{deviceId:request.deviceId?{exact:request.deviceId}:undefined,width:{ideal:request.width||1920},height:{ideal:request.height||1080},frameRate:{ideal:request.frameRate||30}},audio:false}):this.access.getUserMedia({video:false,audio:{deviceId:request.deviceId?{exact:request.deviceId}:undefined,echoCancellation:request.echoCancellation!==false,noiseSuppression:request.noiseSuppression!==false,autoGainControl:false}});
+    const limit=request.preview,acquiring=kind==='screen'?this.access.getDisplayMedia({video:{frameRate:{ideal:Math.min(request.frameRate||30,limit?.frameRate??60),max:limit?.frameRate??60},...(limit?.width&&limit.height?{width:{max:limit.width},height:{max:limit.height}}:{})},audio:Boolean(request.systemAudio)}):kind==='camera'?this.access.getUserMedia({video:{deviceId:request.deviceId?{exact:request.deviceId}:undefined,width:{ideal:request.width||1920},height:{ideal:request.height||1080},frameRate:{ideal:request.frameRate||30}},audio:false}):this.access.getUserMedia({video:false,audio:{deviceId:request.deviceId?{exact:request.deviceId}:undefined,echoCancellation:request.echoCancellation!==false,noiseSuppression:request.noiseSuppression!==false,autoGainControl:false}});
     // A sourceId means the desktop chooser has already been confirmed. Do not time
     // out an initial browser chooser or camera/microphone permission prompt.
     stream=await waitForCapture(acquiring,controller.signal,value=>value.getTracks().forEach(track=>track.stop()),kind==='screen'&&request.sourceId?(this.timings.screenTimeoutMs??30000):undefined);
@@ -73,6 +74,7 @@ export class CapturePreviewManager {
  stopAll(){(['camera','microphone','screen'] as const).forEach(kind=>this.stop(kind));}
  dispose(){this.disposed=true;this.stopAll();this.listeners.clear();}
 }
+export const sameDeviceList=(a:readonly MediaDeviceInfo[],b:readonly MediaDeviceInfo[])=>a.length===b.length&&a.every((d,i)=>d.deviceId===b[i].deviceId&&d.kind===b[i].kind&&d.label===b[i].label&&d.groupId===b[i].groupId);
 /** Camera is video-only. System sound can be recorded with screen video or by itself; mic is included exactly once. */
 export function recordingSources(snapshot:PreviewSnapshot,selection:{camera:boolean;screen:boolean;microphone:boolean;systemAudio:boolean},makeStream:(tracks:MediaStreamTrack[])=>MediaStream=tracks=>new MediaStream(tracks)):{track:'camera'|'screen'|'audio';stream:MediaStream;audioRole?:AudioRole}[]{
  if(selection.systemAudio&&!streamIsLive(snapshot.screen.stream,'audio'))throw new Error('The selected source did not provide system audio. Choose a source with sound, or turn System Sound off.');

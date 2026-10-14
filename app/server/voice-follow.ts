@@ -61,8 +61,9 @@ export async function followSpeech(wav:Buffer,script:string,cursor:number,settin
   const defaultModel=process.env.SCENEFORGE_WHISPER_MODEL||path.join(os.homedir(),'Library','Application Support','SceneForge','studio','models','ggml-base.en.bin');
   const model=settings.provider==='local'&&settings.model?.trim()?settings.model:defaultModel;
   try{if(!(await stat(model)).isFile())throw new Error()}catch{throw new Error('Voice following needs an independent local Whisper model. Set the local model path or SCENEFORGE_WHISPER_MODEL.')}
+  // inspectVoiceWav already proved mono 16 kHz PCM16, which whisper reads directly without an ffmpeg pass.
   await mkdir(workDir,{recursive:true});folder=await mkdtemp(path.join(workDir,'voice-follow-'));const file=path.join(folder,'batch.wav');await writeFile(file,wav,{mode:0o600});
-  const result=await transcribe({id:'voice-batch',name:'Local voice batch',path:file,kind:'audio',duration,width:0,height:0,hasAudio:true},{...settings,provider:'local',apiKey:undefined,baseUrl:'',model,localCommand:settings.provider==='local'?settings.localCommand:undefined},folder);
+  const result=await transcribe({id:'voice-batch',name:'Local voice batch',path:file,kind:'audio',duration,width:0,height:0,hasAudio:true},{...settings,provider:'local',apiKey:undefined,baseUrl:'',model,localCommand:settings.provider==='local'?settings.localCommand:undefined},folder,{prepared:true});
   const transcript=result.captions.map(c=>c.text).join(' ').trim();return alignSpeech(script,transcript,cursor);
  }finally{if(folder)await rm(folder,{recursive:true,force:true});inFlight=false}
 }

@@ -1,4 +1,4 @@
-import { promises as fs } from 'node:fs';
+import { promises as fs, constants as fsConstants, type Stats } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { createHash, randomUUID } from 'node:crypto';
@@ -16,7 +16,8 @@ const HISTORY_DIR=path.join(DATA_DIR,'history');
 const TRASH_DIR=path.join(DATA_DIR,'trash');
 export async function initStorage(){await Promise.all([DATA_DIR,CACHE_DIR,OUTPUT_DIR,UPLOAD_DIR,PROJECT_DIR,MEDIA_DIR,HISTORY_DIR,path.join(DATA_DIR,'trash')].map(p=>fs.mkdir(p,{recursive:true})));}
 export const safeId=(s:string)=>{if(!/^[a-zA-Z0-9_-]{1,100}$/.test(s))throw new Error('Invalid identifier');return s;};
-export const revision=(p:Project)=>createHash('sha256').update(JSON.stringify(p)).digest('hex');
+const digest=(json:string)=>createHash('sha256').update(json).digest('hex');
+export const revision=(p:Project)=>digest(JSON.stringify(p));
 export async function atomicJSON(file:string,value:unknown){const temp=file+'.'+randomUUID()+'.tmp';try{await fs.writeFile(temp,JSON.stringify(value,null,2),{mode:0o600});await fs.rename(temp,file);}catch(e){await fs.rm(temp,{force:true});throw e;}}
 export async function readProject(id:string):Promise<Project>{return JSON.parse(await fs.readFile(path.join(PROJECT_DIR,safeId(id)+'.json'),'utf8'));}
 export async function listProjects(){const files=await fs.readdir(PROJECT_DIR);const projects=await Promise.all(files.filter(f=>f.endsWith('.json')).map(async f=>{try{const p:Project=JSON.parse(await fs.readFile(path.join(PROJECT_DIR,f),'utf8'));return {id:p.id,name:p.name,updatedAt:p.updatedAt,duration:projectDuration(p),mediaCount:p.media.length,sceneCount:p.scenes.length,thumbnailMediaId:(p.clips.find(c=>c.track==='screen')??p.clips.find(c=>c.track==='camera')??p.clips.find(c=>c.track==='overlay'))?.mediaId};}catch{return null;}}));return projects.filter(Boolean).sort((a,b)=>b!.updatedAt.localeCompare(a!.updatedAt));}
@@ -27,26 +28,48 @@ async function serialize<T>(queues:Map<string,Promise<unknown>>,id:string,work:(
  const next=(queues.get(id)||Promise.resolve()).catch(()=>{}).then(work);queues.set(id,next);
  try{return await next;}finally{if(queues.get(id)===next)queues.delete(id);}
 }
-export type ProjectEvent={id:string;revision:string;updatedAt:string;action:'saved'|'trashed'};
+/** `source` marks a save whose only content change is `captions`, made by local transcription. */
+export type ProjectEvent={id:string;revision:string;updatedAt:string;action:'saved'|'trashed';source?:'automatic-captions'};
+/** `project` events are public (SSE); `committed` carries the in-memory saved Project to server observers. */
 export const projectEvents=new EventEmitter();
 projectEvents.setMaxListeners(0);
-export async function saveProject(project:Project,options:{checkpoint?:boolean;expectedRevision?:string}={}){
- const id=safeId(project.id),snapshot=structuredClone(project);
+// Committed compact JSON (the revision's hash input) keyed by file identity: an unchanged file needs no read, parse or hash.
+type Committed={key:string;json:string;revision:string;updatedAt:string};
+const committed=new Map<string,Committed>();
+const fileKey=(stat:Stats)=>`${stat.ino}:${stat.size}:${stat.mtimeMs}`;
+function remember(id:string,entry:Committed){committed.delete(id);committed.set(id,entry);while(committed.size>8)committed.delete(committed.keys().next().value!);}
+/** Committed JSON and revision; `project` is present only when the file had to be read and parsed. */
+export async function projectState(id:string):Promise<Committed&{project?:Project}>{
+ const handle=await fs.open(path.join(PROJECT_DIR,safeId(id)+'.json'),'r');
+ try{const key=fileKey(await handle.stat()),cached=committed.get(id);if(cached?.key===key){remember(id,cached);return cached;}
+  const project:Project=JSON.parse(await handle.readFile('utf8')),json=JSON.stringify(project),entry={key,json,revision:digest(json),updatedAt:project.updatedAt};remember(id,entry);return {...entry,project};}
+ finally{await handle.close();}
+}
+export async function projectExists(id:string){await fs.access(path.join(PROJECT_DIR,safeId(id)+'.json'));}
+type SaveOptions={checkpoint?:boolean;expectedRevision?:string;source?:ProjectEvent['source']};
+/** Saves and returns the committed project with its revision and exact JSON. `clone:false` is for callers that never reuse the input. */
+export async function commitProject(project:Project,options:SaveOptions&{clone?:boolean}={}){
+ const id=safeId(project.id),snapshot=options.clone===false?project:structuredClone(project);
  return serialize(writeQueues,id,()=>writeProject(snapshot,options));
 }
-async function writeProject(project:Project,{checkpoint=false,expectedRevision}:{checkpoint?:boolean;expectedRevision?:string}={}){
- const p=validateProject(project);const file=path.join(PROJECT_DIR,safeId(p.id)+'.json');
- let previous:Project|undefined;try{previous=await readProject(p.id);}catch(e){if((e as NodeJS.ErrnoException).code!=='ENOENT')throw e;}
- if(expectedRevision && (!previous||revision(previous)!==expectedRevision)){const e=new Error('Project changed in another window. Reload before applying this edit.');Object.assign(e,{status:409});throw e;}
- if(previous && (checkpoint || Date.now()-(lastHistory.get(p.id)||0)>30000)){
-  const dir=path.join(HISTORY_DIR,p.id);await fs.mkdir(dir,{recursive:true});await atomicJSON(path.join(dir,Date.now()+'-'+randomUUID()+'.json'),previous);lastHistory.set(p.id,Date.now());
+export async function saveProject(project:Project,options:SaveOptions={}){return (await commitProject(project,options)).project;}
+async function writeProject(project:Project,{checkpoint=false,expectedRevision,source}:SaveOptions={}){
+ const p=validateProject(project),id=safeId(p.id),file=path.join(PROJECT_DIR,id+'.json');
+ let previous:Committed|undefined;try{previous=await projectState(id);}catch(e){if((e as NodeJS.ErrnoException).code!=='ENOENT')throw e;}
+ if(expectedRevision && (!previous||previous.revision!==expectedRevision)){const e=new Error('Project changed in another window. Reload before applying this edit.');Object.assign(e,{status:409});throw e;}
+ if(previous && (checkpoint || Date.now()-(lastHistory.get(id)||0)>30000)){
+  // The committed bytes are the snapshot: a copy-on-write clone where supported, never a re-serialization.
+  const dir=path.join(HISTORY_DIR,id);await fs.mkdir(dir,{recursive:true});const target=path.join(dir,Date.now()+'-'+randomUUID()+'.json'),temp=target+'.'+randomUUID()+'.tmp';
+  try{await fs.copyFile(file,temp,fsConstants.COPYFILE_FICLONE);await fs.rename(temp,target);}catch(e){await fs.rm(temp,{force:true});throw e;}lastHistory.set(id,Date.now());
  }
- p.updatedAt=new Date().toISOString();await atomicJSON(file,p);
- projectEvents.emit('project',{id:p.id,revision:revision(p),updatedAt:p.updatedAt,action:'saved'} satisfies ProjectEvent);return p;
+ p.updatedAt=new Date().toISOString();const json=JSON.stringify(p),hash=digest(json),temp=file+'.'+randomUUID()+'.tmp';
+ try{await fs.writeFile(temp,json,{mode:0o600});const key=fileKey(await fs.stat(temp));await fs.rename(temp,file);remember(id,{key,json,revision:hash,updatedAt:p.updatedAt});}catch(e){await fs.rm(temp,{force:true});throw e;}
+ projectEvents.emit('project',{id,revision:hash,updatedAt:p.updatedAt,action:'saved',...(source?{source}:{})} satisfies ProjectEvent);projectEvents.emit('committed',p);
+ return {project:p,revision:hash,json};
 }
 export async function newProject(name?:string){return saveProject(createProject(name?.trim()||'Untitled project'));}
 export async function trashProject(id:string){
- safeId(id);return serialize(writeQueues,id,async()=>{const p=await readProject(id);await fs.rename(path.join(PROJECT_DIR,id+'.json'),path.join(TRASH_DIR,id+'-'+Date.now()+'-'+randomUUID()+'.json'));projectEvents.emit('project',{id,revision:revision(p),updatedAt:p.updatedAt,action:'trashed'} satisfies ProjectEvent);});
+ safeId(id);return serialize(writeQueues,id,async()=>{const p=await projectState(id);await fs.rename(path.join(PROJECT_DIR,id+'.json'),path.join(TRASH_DIR,id+'-'+Date.now()+'-'+randomUUID()+'.json'));committed.delete(id);projectEvents.emit('project',{id,revision:p.revision,updatedAt:p.updatedAt,action:'trashed'} satisfies ProjectEvent);});
 }
 // Legacy tokens contain project-id + timestamp; never use the project-id limit for these filenames.
 const safeTrashId=(id:string)=>{if(typeof id!=='string'||!/^[a-zA-Z0-9_-]{1,220}$/.test(id))throw Error('Invalid trash identifier');return id;};
@@ -71,20 +94,31 @@ export async function restoreTrash(trashId:string,expectedRevision:string,option
    // Exclusive publication cannot replace a live file, including one written by another process.
    for(;;){
     restored.updatedAt=new Date().toISOString();const target=path.join(PROJECT_DIR,safeId(restored.id)+'.json'),temp=target+'.'+randomUUID()+'.tmp';
-    try{await fs.writeFile(temp,JSON.stringify(restored,null,2),{mode:0o600,flag:'wx'});await fs.link(temp,target);}
+    try{await fs.writeFile(temp,JSON.stringify(restored),{mode:0o600,flag:'wx'});await fs.link(temp,target);}
     catch(error){if((error as NodeJS.ErrnoException).code==='EEXIST'){if(!restoredAsCopy)throw Object.assign(Error('A project with this identity already exists. Review and choose Restore as copy to keep both.'),{status:409});restored={...structuredClone(original),id:randomUUID(),name:original.name+' (recovered copy)'};continue;}throw error;}
     finally{await fs.rm(temp,{force:true});}
     break;
    }
    // The restored project is durable before consuming the trash entry; original history and catalog stay intact.
    await fs.unlink(source);
-   projectEvents.emit('project',{id:restored.id,revision:revision(restored),updatedAt:restored.updatedAt,action:'saved'} satisfies ProjectEvent);
-   return {project:restored,revision:revision(restored),restoredAsCopy};
+   const restoredRevision=revision(restored);projectEvents.emit('project',{id:restored.id,revision:restoredRevision,updatedAt:restored.updatedAt,action:'saved'} satisfies ProjectEvent);projectEvents.emit('committed',restored);
+   return {project:restored,revision:restoredRevision,restoredAsCopy};
   });
  });
 }
 export async function duplicateProject(id:string){const p=await readProject(id);p.id=randomUUID();p.name+=' copy';p.createdAt=new Date().toISOString();return saveProject(p);}
-export async function history(id:string){const dir=path.join(HISTORY_DIR,safeId(id));const files=await fs.readdir(dir).catch(()=>[]);return Promise.all(files.filter(f=>f.endsWith('.json')).sort().reverse().slice(0,100).map(async f=>{const p:Project=JSON.parse(await fs.readFile(path.join(dir,f),'utf8'));return {id:f.slice(0,-5),createdAt:p.updatedAt,name:p.name};}));}
+// Projects serialize version, id, name, createdAt, updatedAt first, so a snapshot's name and date are in its first bytes.
+const snapshotHead=/^\s*\{\s*"version"\s*:\s*1\s*,\s*"id"\s*:\s*"(?:[^"\\]|\\.)*"\s*,\s*"name"\s*:\s*("(?:[^"\\]|\\.)*")\s*,\s*"createdAt"\s*:\s*"(?:[^"\\]|\\.)*"\s*,\s*"updatedAt"\s*:\s*("(?:[^"\\]|\\.)*")/;
+export async function snapshotSummary(file:string):Promise<{name:string;updatedAt:string}>{
+ const handle=await fs.open(file,'r');let head='';try{const {bytesRead,buffer}=await handle.read(Buffer.alloc(4096),0,4096,0);head=buffer.toString('utf8',0,bytesRead);}finally{await handle.close();}
+ const match=snapshotHead.exec(head);if(match)return {name:JSON.parse(match[1]),updatedAt:JSON.parse(match[2])};
+ const p:Project=JSON.parse(await fs.readFile(file,'utf8'));return {name:p.name,updatedAt:p.updatedAt};
+}
+export async function history(id:string){
+ const dir=path.join(HISTORY_DIR,safeId(id)),files=(await fs.readdir(dir).catch(()=>[])).filter(f=>f.endsWith('.json')).sort().reverse().slice(0,100),items:Array<{id:string;createdAt:string;name:string}>=new Array(files.length);let next=0;
+ await Promise.all(Array.from({length:Math.min(4,files.length)},async()=>{while(next<files.length){const i=next++,s=await snapshotSummary(path.join(dir,files[i]));items[i]={id:files[i].slice(0,-5),createdAt:s.updatedAt,name:s.name};}}));
+ return items;
+}
 export async function restoreProject(id:string,historyId:string,expectedRevision:string){if(!expectedRevision)throw Object.assign(Error('Reload and review the current project before restoring history.'),{status:409});const p:Project=JSON.parse(await fs.readFile(path.join(HISTORY_DIR,safeId(id),safeId(historyId)+'.json'),'utf8'));p.id=id;return saveProject(p,{checkpoint:true,expectedRevision});}
 export async function registerMedia(media:Media){safeId(media.id);if(media.audioRole!==undefined&&!isAudioRole(media.audioRole))throw new Error('Invalid media audio role');if(media.audioRole===undefined){const previous=await readMedia(media.id).catch(()=>undefined);if(previous?.path===media.path&&isAudioRole(previous.audioRole))media={...media,audioRole:previous.audioRole};}await atomicJSON(path.join(MEDIA_DIR,media.id+'.json'),media);return media;}
 export async function readMedia(id:string):Promise<Media>{return JSON.parse(await fs.readFile(path.join(MEDIA_DIR,safeId(id)+'.json'),'utf8'));}

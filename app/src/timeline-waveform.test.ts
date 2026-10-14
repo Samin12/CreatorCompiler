@@ -1,11 +1,21 @@
 import test from 'node:test';import assert from 'node:assert/strict';
-import {TimelineWaveformCache,hasWaveform,waveformBars,waveformHeight,waveformMediaKey} from './timeline-waveform';
+import {TimelineWaveformCache,hasWaveform,waveformBars,waveformHeight,waveformMediaKey,waveformPath} from './timeline-waveform';
 import {defaultEffects,defaultTransform,type Clip,type Media} from '../shared/types';
 const media:Media={id:'source',path:'/fixture/source.wav',name:'Audio',kind:'audio',duration:10,width:0,height:0};
 const clip:Clip={id:'c',mediaId:'source',name:'Trimmed',track:'audio',start:20,sourceIn:4,sourceOut:8,speed:2,gain:1,muted:false,transform:defaultTransform(),effects:defaultEffects()};
 const tick=()=>new Promise(resolve=>setTimeout(resolve,0));
 test('trim and speed sample later source bins instead of beginning of file',()=>{const peaks=Array.from({length:10},(_,i)=>i/10),bars=waveformBars(clip,media,peaks,3,20,22);assert.deepEqual(bars,[{x:1.5,peak:.5},{x:4.5,peak:.7}]);});
 test('visible scroll window maps source time and preserves quiet amplitude, gaps and bounds',()=>{const peaks=[0,0,0,0,.01,.01,.02,.02,0,0];assert.deepEqual(waveformBars(clip,media,peaks,3,21,22),[{x:4.5,peak:.02}]);assert.deepEqual(waveformBars(clip,media,peaks,3,0,19),[]);assert.deepEqual(waveformBars(clip,{...media,duration:0},peaks,3,20,22),[]);assert.ok(waveformBars(clip,media,peaks,100000,20,22).length<=1200);});
+test('bars sit on a fixed timeline pixel grid so a moving window keeps every shared bar unchanged',()=>{
+ const long={...clip,start:20.37,sourceIn:1,sourceOut:9,speed:1},peaks=Array.from({length:200},(_,i)=>(i*37%101)/100),scale=55,origin=long.start*scale;
+ const a=waveformBars(long,media,peaks,scale,20,24),b=waveformBars(long,media,peaks,scale,21.3,27),byX=new Map(a.map(bar=>[bar.x,bar.peak]));let shared=0;
+ for(const bar of [...a,...b])assert.ok(Math.abs(((bar.x+origin-1.5)/3)-Math.round((bar.x+origin-1.5)/3))<1e-9);
+ for(const bar of b)if(byX.has(bar.x)){shared++;assert.equal(bar.peak,byX.get(bar.x));}assert.ok(shared>=40);
+ assert.deepEqual(waveformBars(clip,media,Array.from({length:10},(_,i)=>i/10),3,20,22,1),[{x:3,peak:.7}]);
+});
+test('one path per clip draws each audible bar and skips silent ones',()=>{
+ assert.equal(waveformPath([{x:1.5,peak:.25},{x:4.5,peak:0},{x:7.123,peak:1}]),'M1.5 7.5V20.5M7.12 1V27');assert.equal(waveformPath([]),'');
+});
 test('muted and gain-adjusted clips retain raw source waveform without normalization',()=>{const peaks=Array(10).fill(.04);for(const change of [{muted:true},{gain:20},{gain:0}])assert.ok(waveformBars({...clip,...change},media,peaks,3,20,22).every(b=>b.peak===.04));assert.ok(hasWaveform({...media,kind:'video'}));assert.ok(!hasWaveform({...media,kind:'video',hasAudio:false}));assert.ok(!hasWaveform({...media,kind:'image'}));});
 test('cache deduplicates active sources, bounds concurrency and withdraws hidden queued requests',async()=>{
  let active=0,max=0;const calls:string[]=[],finish=new Map<string,(p:number[])=>void>();const cache=new TimelineWaveformCache(m=>{calls.push(m.id);active++;max=Math.max(max,active);return new Promise<number[]>(resolve=>finish.set(m.id,p=>{active--;resolve(p)}));},2,2);
