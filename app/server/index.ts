@@ -29,7 +29,7 @@ const exportsStore=new ExportStore(path.join(storage.DATA_DIR,'export-history'),
 await exportsStore.init();
 // Observers receive the committed in-memory project after the response instead of re-reading the file.
 storage.projectEvents.on('committed',(p:Project)=>setImmediate(()=>{try{automation.observe(p);}catch{}}));
-void recordings.cleanupCompletedRecordings();
+void recordings.cleanupRecordings();
 const app=express();
 app.disable('x-powered-by');
 app.use((req,res,next)=>{
