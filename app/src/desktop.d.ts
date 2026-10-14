@@ -54,7 +54,7 @@ export type SavedDesktopCaptureSelection = Omit<DesktopCaptureSelection,'token'>
 export interface DesktopRecordingHudState {
  projectName: string; script: string; cameraEnabled: boolean; mirror: boolean;
  hideMain: boolean; status: 'starting'|'recording'|'paused'|'saving'|'idle'; elapsed: number;
- cameraFrame?: string|null;
+ /** The HUD opens its own live camera by matching this label; device IDs are salted per origin. */
  cameraLabel?:string; microphoneLabel?:string; systemAudioLabel?:string; countdown?:number|null;
 }
 export interface DesktopNativeRecordingResult {
@@ -87,6 +87,8 @@ export interface SceneForgeDesktopBridge {
  resumeNativeRecording?(id:string):Promise<DesktopNativeRecordingResult>;
  stopNativeRecording?(id:string):Promise<DesktopNativeRecordingResult>;
  onNativeRecordingEvent?(handler:(event:DesktopNativeRecordingEvent)=>void):()=>void;
+ /** The main window is hidden, minimized or restored. Recording continues either way. */
+ onMainWindowVisibility?(handler:(visible:boolean)=>void):()=>void;
  getMediaPermissions?(): Promise<DesktopMediaPermissions>;
  requestMediaPermission?(permission: 'camera' | 'microphone'): Promise<{permission: 'camera' | 'microphone'; granted: boolean; status: DesktopMediaAccessStatus}>;
  openPrivacySettings?(section: DesktopPrivacySection): Promise<void>;

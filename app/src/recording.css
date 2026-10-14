@@ -36,3 +36,5 @@
 .capture-source-hint,.recording-ready-hint,.recording-capture-notice{font-size:11px;line-height:16px}
 .recording-storage-note{font-size:10px;line-height:14px}
 @media(max-width:760px){.recording-workspace{grid-template-columns:minmax(260px,42%) minmax(0,1fr)}.capture-video{height:160px}}
+/* The hidden editor keeps rendering during a take (background throttling stays off for recording timers); stop its animation frames. */
+:root[data-main-hidden] *,:root[data-main-hidden] *::before,:root[data-main-hidden] *::after{animation-play-state:paused!important}

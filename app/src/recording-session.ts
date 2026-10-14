@@ -10,6 +10,10 @@ export class RecordingClock {
  elapsed(at:number){return Math.max(0,((this.pauseAt??at)-this.startedAt-this.pausedFor)/1000);}
  offset(at:number){return Math.max(0,(at-this.startedAt)/1000);}
 }
+/** Video prefers H.264 (VideoToolbox hardware on Apple Silicon) over software VP9/VP8. Audio-only stays WebM/Opus. */
+export function recorderMimeType(video:boolean,supported:(type:string)=>boolean):string|undefined{
+ return (video?['video/mp4;codecs=avc1.640028','video/mp4;codecs=avc1','video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm']:['audio/webm;codecs=opus','audio/webm']).find(supported);
+}
 /** Browser screen/audio must never duplicate a native capture of the same source. */
 export function browserRecordingSelection<T extends {screen:boolean;systemAudio:boolean}>(selection:T,native:boolean):T {
  return native?{...selection,screen:false,systemAudio:false}:{...selection};

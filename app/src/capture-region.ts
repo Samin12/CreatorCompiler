@@ -18,6 +18,8 @@ export function desktopRegionToNormalized(region:PixelRegion,display:PixelRegion
  if(display.width<=0||display.height<=0)throw new Error('The selected display has no bounds.');
  return clampRegion({x:(region.x-display.x)/display.width,y:(region.y-display.y)/display.height,width:region.width/display.width,height:region.height/display.height});
 }
+/** CSS object-view-box crop of the full source: the compositor shows the region with no per-frame script. */
+export function regionInset(region:NormalizedRegion):string{const r=clampRegion(region),pct=(n:number)=>`${Math.max(0,n*100)}%`;return `inset(${pct(r.y)} ${pct(1-r.x-r.width)} ${pct(1-r.y-r.height)} ${pct(r.x)})`;}
 export interface RegionStream {stream:MediaStream;dispose:()=>void}
 export async function cropCaptureStream(raw:MediaStream,region:NormalizedRegion,frameRate:number,signal:AbortSignal):Promise<RegionStream>{
  const normalized=clampRegion(region),video=document.createElement('video');video.muted=true;video.playsInline=true;video.srcObject=raw;
