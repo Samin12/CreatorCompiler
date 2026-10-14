@@ -1,4 +1,5 @@
 import {cutTimelineRange} from '../shared/timeline-edits';
+import {plainView} from './project-draft';
 import type { Caption, Media, Project, TrackKind } from '../shared/types';
 import { clipDuration, defaultEffects, defaultTransform, makeId } from '../shared/types';
 import type {AgentChatJob,AgentChatRequest,AgentStatus} from '../shared/agent-chat';
@@ -11,12 +12,16 @@ export const undoAgentChat=(projectId:string,id:string)=>api<Project>(`/projects
 export function subscribeAgentChat(id:string,receive:(job:AgentChatJob)=>void,onError?:()=>void){const events=new EventSource(`/api/agent-chat/${encodeURIComponent(id)}/events`);events.addEventListener('job',event=>{try{receive(JSON.parse((event as MessageEvent).data));}catch{}});if(onError)events.onerror=onError;return()=>events.close();}
 
 export class APIError extends Error {constructor(message:string,public status:number){super(message);}}
+/** A request body that is already JSON text, so a large project is serialized once per save. */
+export class JSONBody {constructor(readonly text:string){}}
 export async function apiResult<T>(path:string,body?:unknown,method?:string,headers:Record<string,string>={},signal?:AbortSignal):Promise<{data:T;etag:string|null}>{
- const res=await fetch(`/api${path}`, {method:method??(body===undefined?'GET':'POST'),headers:{...(body instanceof FormData?{}:{'Content-Type':'application/json'}),...headers},body:body===undefined?undefined:body instanceof FormData?body:JSON.stringify(body),signal});
+ const res=await fetch(`/api${path}`, {method:method??(body===undefined?'GET':'POST'),headers:{...(body instanceof FormData?{}:{'Content-Type':'application/json'}),...headers},body:body===undefined?undefined:body instanceof FormData?body:body instanceof JSONBody?body.text:JSON.stringify(body),signal});
  if(!res.ok){const err=await res.json().catch(()=>({error:res.statusText}));throw new APIError(err.error??res.statusText,res.status);}
  return {data:await res.json(),etag:res.headers.get('ETag')};
 }
 export async function api<T>(path:string, body?:unknown, method?:string,signal?:AbortSignal):Promise<T> {return (await apiResult<T>(path,body,method,{},signal)).data;}
+/** With `Prefer: return=minimal`, an unchanged save returns only its new timestamp; the sent object is kept with every nested object. */
+export function adoptSavedProject(sent:Project,body:unknown):Project{const echo=body as {minimal?:unknown;id?:unknown;updatedAt?:unknown};if(echo?.minimal!==true)return body as Project;if(echo.id!==sent.id||typeof echo.updatedAt!=='string')throw new Error('The save response did not match this project. Your edits are still open.');return {...sent,updatedAt:echo.updatedAt};}
 export async function projectRevision(project:Project):Promise<string>{return '"'+Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(project))))).map(n=>n.toString(16).padStart(2,'0')).join('')+'"';}
 export const mediaUrl=(m:Media,proxy=false)=>`/api/media/${m.id}/${proxy&&m.kind==='video'?'proxy':'file'}`;
 export const timecode=(n:number)=>{const v=Math.max(0,Number.isFinite(n)?n:0);return `${Math.floor(v/60).toString().padStart(2,'0')}:${Math.floor(v%60).toString().padStart(2,'0')}`;};
@@ -39,7 +44,8 @@ export function insertMedia(p:Project, medias:Media[], at?:number, track?:TrackK
  }
  if(p.scenes.length===1&&p.scenes[0].duration===0)p.scenes[0].duration=position;
 }
-export function cutRange(p:Project,start:number,end:number,ripple=true) {cutTimelineRange(p,start,end,ripple);}
+/** Reads a plain view, so later in the same edit replace the cut items' nested objects (transform, effects, …) rather than mutating them. */
+export function cutRange(p:Project,start:number,end:number,ripple=true) {cutTimelineRange(p,start,end,ripple,plainView(p));}
 
 // Recovery plans are reviewed against both a project revision and a file fingerprint.
 export async function getTrash(signal?:AbortSignal){return api<{items:import('../shared/recovery').TrashProjectSummary[]}>('/trash',undefined,'GET',signal);}
