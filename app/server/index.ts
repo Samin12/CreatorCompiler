@@ -22,6 +22,8 @@ import {planNewBorumiProject,exportNewBorumiProject} from './borumi-new-project.
 import {isAudioRole,type Project,type ExportOptions} from '../shared/types.js';
 
 const PORT=Number(process.env.SCENEFORGE_PORT||4174);
+// The memoized media probe (including a VideoToolbox test encode) overlaps boot instead of delaying the first health check.
+void media.getCapabilities();
 await storage.initStorage();
 const exportsStore=new ExportStore(path.join(storage.DATA_DIR,'export-history'),storage.OUTPUT_DIR,{start:media.startExport,cancel:media.cancelJob});
 await exportsStore.init();
@@ -40,6 +42,7 @@ const param=(req:Request,name='id')=>String(req.params[name]);
 const reviewedRevision=(req:Request)=>{const value=req.headers['if-match'];if(typeof value!=='string'||!/^(?:"[0-9a-f]{64}"|[0-9a-f]{64})$/.test(value))throw Object.assign(Error('A reviewed project revision is required. Refresh and review this action again.'),{status:409});return value.replaceAll('"','');};
 const capabilities=async()=>({...await media.getCapabilities(),transcription:await ai.transcriptionCapabilities(),vision:await getVisionCapabilities(),application:'SceneForge',mcp:{command:process.env.SCENEFORGE_MCP_COMMAND||path.join(os.homedir(),'Applications/SceneForge.app/Contents/MacOS/sceneforge-mcp'),args:[],toolCount:toolDefinitions.length},version:'0.1.0'});
 app.get('/api/health',route(async(_,res)=>res.json({...await capabilities(),dataDir:storage.DATA_DIR})));
+app.get('/api/ready',(_req,res)=>{res.json({application:'SceneForge',version:'0.1.0'});});
 app.get('/api/capabilities',route(async(_,res)=>res.json(await capabilities())));
 app.get('/api/events',(_req,res)=>{
  res.setHeader('Content-Type','text/event-stream');res.setHeader('Cache-Control','no-cache, no-transform');res.setHeader('Connection','keep-alive');res.flushHeaders();
