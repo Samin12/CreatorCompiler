@@ -30,6 +30,7 @@ function buildPlan(project:Project,source:BorumiProvenance,structural:Structural
  if(project.version!==1)blockers.add('Unsupported SceneForge project version.');
  if(!same(project.timelineLayers??[],base.timelineLayers??[])||project.clips.some(c=>c.layerId!==base.clips.find(b=>b.id===c.id)?.layerId))blockers.add('Custom timeline layers cannot be preserved by this Borumi export yet.');
  if(project.recordedTakes?.length||!same(project.recordedTakes??[],base.recordedTakes??[]))blockers.add('SceneForge recorded-take history cannot be preserved by this Borumi export. Keep the SceneForge project or export a video instead.');
+ if(project.canvas.backgroundPattern!==undefined)blockers.add('Moving-dot canvas backgrounds cannot be preserved by this Borumi export. Choose Solid color in Canvas, or export a video instead.');
  if(project.name!==base.name)change('project',project.id,['name']);
  if(changed(project.canvas,base.canvas,['width','height']))blockers.add('Canvas changes other than width and height cannot be exported yet.');
  for(const k of ['width','height'] as const)if(!Number.isInteger(project.canvas[k])||project.canvas[k]<1||project.canvas[k]>16384)blockers.add('Canvas dimensions must be integers between 1 and 16384.');

@@ -96,6 +96,7 @@ export function validateProject(value:unknown):Project{
  if(!value||typeof value!=='object')throw new Error('Expected a project object');const p=value as Project;
  if(p.version!==1||typeof p.id!=='string'||typeof p.name!=='string'||!p.name.trim())throw new Error('Invalid project identity');safeId(p.id);
  if(!p.canvas||![p.canvas.width,p.canvas.height,p.canvas.fps].every(Number.isFinite)||p.canvas.width<16||p.canvas.height<16||p.canvas.width>8192||p.canvas.height>8192||p.canvas.fps<1||p.canvas.fps>120)throw new Error('Invalid canvas (16–8192 pixels, 1–120 fps)');
+ if(p.canvas.backgroundPattern!==undefined&&p.canvas.backgroundPattern!=='moving-dots')throw new Error('Unknown canvas background pattern');
  for(const key of ['clips','media','scenes','captions','elements','zooms'] as const){if(!Array.isArray(p[key])||p[key].length>100000)throw new Error('Invalid '+key);}
  const layerKinds=new Map<string,'video'|'audio'>();
  if(p.timelineLayers!==undefined){
@@ -124,7 +125,7 @@ export function validateProject(value:unknown):Project{
  }
  for(const s of p.scenes){if(!Number.isFinite(s.start)||!Number.isFinite(s.duration)||s.start<0||s.duration<0||typeof s.script!=='string')throw new Error('Invalid scene');}
  for(const e of p.elements){if(![e.start,e.duration,e.x,e.y,e.width,e.height,e.fontSize,e.opacity,e.rotation].every(Number.isFinite)||e.start<0||e.duration<0)throw new Error('Invalid element');}
- for(const z of p.zooms){if(![z.start,z.duration,z.scale,z.x,z.y].every(Number.isFinite)||z.start<0||z.duration<=0||z.scale<1)throw new Error('Invalid zoom');}
+ for(const z of p.zooms){if(![z.start,z.duration,z.scale,z.x,z.y].every(Number.isFinite)||z.start<0||z.duration<=0||z.scale<1)throw new Error('Invalid zoom');if(z.effectTiming!==undefined){const timing=z.effectTiming;if(!timing||typeof timing!=='object'||Array.isArray(timing)||![timing.offset,timing.duration].every(Number.isFinite)||timing.offset<0||timing.duration<=0||timing.offset>86400||timing.duration>86400)throw new Error('Invalid zoom effect timing');}}
  if(!p.cursor||!Array.isArray(p.cursor.points)||!p.settings||!p.captionStyle)throw new Error('Project settings are missing');
  if(p.recordedTakes!==undefined){
   if(!Array.isArray(p.recordedTakes)||p.recordedTakes.length>2000)throw Error('Invalid recorded take history');

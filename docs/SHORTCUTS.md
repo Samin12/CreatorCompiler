@@ -7,6 +7,7 @@ Default macOS bindings are scoped to the current workspace. Text inputs retain o
 | Select tool / Blade tool | `A` / `B` |
 | Split at playhead | `⌘B` |
 | Toggle scrubbing / snapping | `S` / `N` |
+| Show / hide source waveforms | `E` |
 | Trim selection left / right to playhead | `Q` / `W` |
 | Delete and collapse | `Delete` or `Backspace` |
 | Delete leaving a gap | `⇧Delete` or `⇧Backspace` |
@@ -30,3 +31,5 @@ In Script, `⌘Enter` splits a nonempty scene at the caret. Backspace at the beg
 In take review, `Space` plays or pauses, `←` / `→` seek five seconds, `J` slows playback, `K` pauses and resets the rate, `L` plays or increases the rate, and `Escape` closes review while keeping the saved take. All seven take-review bindings can be changed, disabled or reset in Settings. Workflow-review and inside-group actions remain unavailable where their corresponding feature is not implemented. Pointer/wheel rows can be disabled or reset; keyboard replacement of those gestures is unavailable. `J` is not an Edit shortcut. See the complete [source registry](../app/src/shortcuts.ts).
 
 In Record, `⌘⇧P` opens local recording presets. Save, apply, rename, update, and delete named capture settings. Applying a preset reopens only already-authorized camera/microphone sources; screen and system sound require explicit source selection.
+
+`E` is a SceneForge addition. It toggles waveform visibility without changing the audio. Focus the timeline divider and use arrow keys to resize it; double-click resets the height. Scene cards support `Alt+↑/↓` reordering.

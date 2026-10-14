@@ -1,0 +1,8 @@
+.edit-workspace:has(>.timeline-resizer){position:relative;grid-template-rows:minmax(0,1fr) 38px var(--timeline-height,200px)}
+.edit-workspace:has(>.timeline-resizer) .stage:has(.stage-empty){min-height:0}
+.timeline-resizer{position:absolute;grid-column:2 / -1;z-index:12;left:0;right:0;bottom:calc(var(--timeline-height,200px) - 4px);height:8px;cursor:row-resize;touch-action:none;user-select:none;outline:none}
+.edit-workspace:has(.agent-chat:not([hidden]))>.timeline-resizer{grid-column:2 / 4}
+.timeline-resizer::before{content:'';position:absolute;left:0;right:0;top:3px;height:1px;background:var(--line,#e5e5e5)}
+.timeline-resizer>span{position:absolute;width:40px;left:calc(50% - 20px);top:2px;height:3px;border-radius:2px;background:var(--muted,#737373);opacity:.6;pointer-events:none}
+.timeline-resizer:hover>span,.timeline-resizer:focus-visible>span,.timeline-resizer.is-dragging>span{background:var(--foreground,#0a0a0a);opacity:1}
+.timeline-resizer:focus-visible::before,.timeline-resizer.is-dragging::before{height:2px;background:var(--foreground,#0a0a0a)}

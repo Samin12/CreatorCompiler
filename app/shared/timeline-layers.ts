@@ -27,6 +27,32 @@ export function timelineRows(project:Project):TimelineLayerRow[]{
  for(const clip of project.clips){const id=clipLayerRowId(clip,project);if(seen.has(id))continue;seen.add(id);rows.push({id,track:clip.track,name:`${roles[clip.track].name} · layer ${clip.zIndex}`,kind:clipLayerKind(clip),order:clipCompositeOrder(clip,project),legacyZ:clip.zIndex});}
  return rows.sort((a,b)=>(a.kind===b.kind?b.order-a.order:a.kind==='video'?-1:1)||a.id.localeCompare(b.id));
 }
+function nextLayerName(project:Project,kind:LayerKind):string{
+ const names=new Set((project.timelineLayers??[]).map(row=>row.name));let serial=1,name:string;
+ do{name=`${kind==='video'?'Video':'Audio'} layer ${serial++}`;}while(names.has(name));return name;
+}
+/** Creates an empty row above the existing rows of the same kind. */
+export function addTimelineLayer(project:Project,kind:LayerKind,makeId:()=>string=()=>globalThis.crypto.randomUUID()):TimelineLayerRow{
+ if(kind!=='video'&&kind!=='audio')throw Error('Choose a video or audio layer.');
+ if((project.timelineLayers?.length??0)>=2000)throw Error('This project has reached the limit of 2,000 custom layers.');
+ const id=makeId();if(!/^[a-zA-Z0-9_-]{1,100}$/.test(id)||project.timelineLayers?.some(row=>row.id===id))throw Error('A unique layer identifier is required.');
+ const orders=timelineRows(project).filter(row=>row.kind===kind).map(row=>row.order).filter(Number.isFinite);
+ const row={id,name:nextLayerName(project,kind),kind,order:Math.max(0,...orders)+1};
+ if(!Number.isFinite(row.order)||orders.includes(row.order))throw Error('A layer cannot be added above the existing layer order.');
+ (project.timelineLayers??=[]).push(row);return row;
+}
+/** Only custom rows can be renamed. Invalid input leaves the document unchanged. */
+export function renameTimelineLayer(project:Project,id:string,name:string):boolean{
+ const row=project.timelineLayers?.find(layer=>layer.id===id),next=name.trim();
+ if(!row||!next||next.length>200||next===row.name)return false;row.name=next;return true;
+}
+/** Removing a row never removes media or clips, including edits saved in archived takes. */
+export function removeTimelineLayer(project:Project,id:string):boolean{
+ if(!project.timelineLayers?.some(row=>row.id===id))return false;
+ const move=(clip:Clip)=>{if(clip.layerId===id)clip.layerId=roleId(clip.track);};
+ project.clips.forEach(move);for(const take of project.recordedTakes??[])take.timeline?.clips.forEach(move);
+ project.timelineLayers=project.timelineLayers.filter(row=>row.id!==id);if(!project.timelineLayers.length)delete project.timelineLayers;return true;
+}
 export type LayerDestination={kind:'existing';rowId:string}|{kind:'new';beforeId:string|null;afterId:string|null};
 /** Mutates only selected same-kind layer assignments. Time, source role, and old zIndex stay intact. */
 export function moveClipsToLayer(project:Project,ids:ReadonlySet<string>,anchorId:string,destination:LayerDestination,makeId:()=>string=()=>globalThis.crypto.randomUUID()):void{

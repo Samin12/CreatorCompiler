@@ -10,10 +10,11 @@ export interface AutomationProposal {
 }
 export interface AutomationJob {
  id:string; projectId:string; kind:AutomationKind;
+ sceneId?:string; sceneName?:string;
  status:'queued'|'running'|'ready'|'complete'|'conflict'|'failed'|'cancelled';
  progress:number; message:string; createdAt:string; updatedAt:string;
  automatic:boolean; applied:boolean; undone:boolean; error?:string;
  captionCount?:number; proposal?:AutomationProposal;
 }
-export interface QuickActionRequest { kind:'auto-cut'|'visualize'; semantic?:boolean; }
+export interface QuickActionRequest { kind:'auto-cut'|'visualize'; semantic?:boolean; sceneId?:string; }
 export interface AutomationMutation { job:AutomationJob; project:import('./types.js').Project; }

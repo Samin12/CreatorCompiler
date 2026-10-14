@@ -10,3 +10,35 @@
 .timeline-snap-guide{position:absolute;top:28px;bottom:0;z-index:6;width:1px;background:#f97316;pointer-events:none}
 .timeline-snap-guide>span{position:absolute;left:3px;padding:2px 4px;background:#9a3412;color:#fff;border-radius:3px;font-size:10px;white-space:nowrap;font-variant-numeric:tabular-nums}
 .timeline-drag-announcement{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.timeline{flex-direction:column}
+.timeline .timeline-scroll{min-height:0}
+.timeline-layer-toolbar{height:32px;min-height:32px;display:flex;align-items:center;gap:12px;padding:0 12px;border-bottom:1px solid var(--line);background:var(--background);position:relative;z-index:9}
+.timeline-layer-toolbar>span{font-size:10px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.timeline-add-layer{position:relative;flex-shrink:0}
+.timeline-add-layer-button{display:flex;align-items:center;gap:5px;border-radius:5px;font-size:11px;font-weight:600;padding:4px 6px;color:var(--foreground)}
+.timeline-add-layer-button:hover,.timeline-layer-controls button:hover{background:var(--input)}
+.timeline-add-layer-button:disabled{opacity:.5;cursor:not-allowed}
+.timeline-add-layer-menu{position:absolute;top:calc(100% + 4px);left:0;min-width:150px;padding:4px;border:1px solid var(--line);border-radius:7px;background:var(--background);box-shadow:0 5px 18px #0003;display:grid}
+.timeline-add-layer-menu>button{display:flex;align-items:center;gap:8px;padding:8px;text-align:left;font-size:12px;border-radius:4px;color:var(--foreground)}
+.timeline-add-layer-menu>button:hover,.timeline-add-layer-menu>button:focus-visible{background:var(--input)}
+.timeline .timeline-row.has-layer-controls:before{display:none}
+.timeline-layer-controls{position:sticky;left:12px;top:0;height:26px;width:max-content;max-width:calc(100% - 24px);display:flex;align-items:center;gap:4px;z-index:4;cursor:default}
+.timeline-layer-controls button{color:var(--muted);border-radius:4px;height:23px}
+.timeline-layer-controls .timeline-layer-name{font-size:10px;font-weight:600;padding:3px 5px;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.timeline-layer-controls .timeline-layer-remove{display:flex;align-items:center;justify-content:center;width:23px;color:var(--muted)}
+.timeline-layer-controls .timeline-layer-remove:hover{color:#dc2626}
+.timeline-layer-controls input{height:23px;width:180px;padding:2px 5px;border:1px solid #3b82f6;border-radius:4px;background:var(--background);color:var(--foreground);font-size:11px}
+.timeline-layer-controls button:focus-visible,.timeline-add-layer-button:focus-visible{outline:2px solid #3b82f6;outline-offset:1px}
+
+.timeline-scene{position:absolute;top:0;height:25px;display:flex;align-items:center;border-right:1px solid var(--line);padding:0 3px;cursor:grab;min-width:0;color:var(--muted)}
+.timeline-scene:active{cursor:grabbing}.timeline-scene:hover{background:var(--secondary)}
+.timeline-scene .timeline-scene-title{position:sticky;left:3px;display:flex;align-items:center;gap:5px;min-width:0;max-width:190px;overflow:hidden;font-size:9px;text-align:left;text-transform:uppercase;cursor:grab}
+.timeline-scene-title>span{font-size:8px;min-width:14px;height:14px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:var(--input)}
+.timeline-scene-title>b{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.timeline-scene-actions{height:22px;min-width:18px;display:flex;align-items:center;justify-content:center;border-radius:3px;margin-left:2px}.timeline-scene-actions:hover{background:var(--input)}
+.timeline-scene-menu{position:absolute;top:24px;left:0;z-index:10;min-width:150px;padding:4px;border:1px solid var(--line);border-radius:6px;background:var(--background);box-shadow:0 5px 16px #0003;display:grid;cursor:default}
+.timeline-scene:has(.timeline-scene-menu){z-index:10}.timeline-scene-menu>button{text-align:left;padding:7px;font-size:12px;color:var(--foreground);border-radius:4px}.timeline-scene-menu>button:hover,.timeline-scene-menu>button:focus-visible{background:var(--input)}
+.timeline-scene.scene-drop-before{border-left:3px solid #3b82f6}.timeline-scene.scene-drop-after{border-right:3px solid #3b82f6}.timeline-scene-end-drop{position:absolute;top:0;height:25px;border-left:3px solid #3b82f6;pointer-events:none}
+.timeline-scene button:focus-visible{outline:2px solid #3b82f6;outline-offset:-1px}
+
+.timeline-waveform-toggle{display:flex;align-items:center;gap:5px;border:1px solid var(--line);border-radius:5px;font-size:11px;padding:3px 6px;color:var(--muted);white-space:nowrap}.timeline-waveform-toggle[aria-pressed=true]{background:var(--input);color:var(--foreground)}.timeline-waveform-toggle:focus-visible{outline:2px solid #3b82f6;outline-offset:1px}.timeline .clip-waveform{opacity:.65}

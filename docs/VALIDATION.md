@@ -1,6 +1,12 @@
 # Preview validation
 
-Source update for **v0.1.0-preview.2**, October 13, 2026. Prior completed checkpoints below retain their original test scope. These are scoped source, packaged-runtime and physical checks. They do not establish complete parity, certification on every Mac or every-frame visual correctness.
+Source update for **v0.1.0-preview.3**, October 13, 2026. Prior completed checkpoints below retain their original test scope. These are scoped source, packaged-runtime and physical checks. They do not establish complete parity, certification on every Mac or every-frame visual correctness.
+
+## Moving canvas, scenes and timeline update
+
+The combined source suite passed 467 tests: 466 passed, zero failed and one known private-portrait fixture was skipped; production builds passed. New checks cover the moving dotted canvas across 510 exported frames, range/frame inspection, 16-second loops and chunk boundaries; source-time waveforms including long/quiet/stereo media; layer controls; scene-only proposals and cross-boundary caption/zoom preservation; and timeline resizing.
+
+Actual component checks cover 21 timeline-resizer cases, 19 recording-scene action cases, 55 timeline/layer/scene/waveform cases, and 16 moving-canvas/dialog cases. The background uses a small repeated animated tile with bilinear movement, rather than regenerating the full canvas each frame. These measurements and examples do not establish general performance superiority or full native parity. Installed-package and public-download checks are separate from source/component checks.
 
 ## Interaction and styling update
 

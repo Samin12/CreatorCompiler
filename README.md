@@ -8,7 +8,7 @@ SceneForge is an early, independently authored open-source project. It is not af
 
 ## Install
 
-Download **[SceneForge-macOS-arm64.dmg](https://github.com/Samin12/SceneForge/releases/download/v0.1.0-preview.2/SceneForge-macOS-arm64.dmg)** from the [release page](https://github.com/Samin12/SceneForge/releases/tag/v0.1.0-preview.2). Open it, drag **SceneForge** into **Applications**, eject the disk image, then open the app from Applications. A [ZIP download](https://github.com/Samin12/SceneForge/releases/download/v0.1.0-preview.2/SceneForge-macOS-arm64.zip) is also available if you prefer to move the app yourself.
+Download **[SceneForge-macOS-arm64.dmg](https://github.com/Samin12/SceneForge/releases/download/v0.1.0-preview.3/SceneForge-macOS-arm64.dmg)** from the [release page](https://github.com/Samin12/SceneForge/releases/tag/v0.1.0-preview.3). Open it, drag **SceneForge** into **Applications**, eject the disk image, then open the app from Applications. A [ZIP download](https://github.com/Samin12/SceneForge/releases/download/v0.1.0-preview.3/SceneForge-macOS-arm64.zip) is also available if you prefer to move the app yourself.
 
 This prerelease is **Apple Development signed with a stable identity, but not Apple-notarized**. macOS may block its first launch. Review the release and its checksums before deciding whether to open it; Apple documents the [Open Anyway procedure](https://support.apple.com/guide/mac-help/open-a-mac-app-from-an-unknown-developer-mh40616/mac). No paid account is required for local editing.
 
@@ -16,7 +16,7 @@ The desktop download includes FFmpeg/FFprobe, Whisper, the English `base.en` spe
 
 ## Watch a sample
 
-[Watch or download the 12-second SceneForge sample](https://github.com/Samin12/SceneForge/releases/download/v0.1.0-preview.2/SceneForge-demo.mp4). It was assembled through the installed MCP server and rendered in SceneForge, using original synthetic visuals, local narration, timed graphics and captions. [How the sample was made](docs/DEMO.md).
+[Watch or download the 12-second SceneForge sample](https://github.com/Samin12/SceneForge/releases/download/v0.1.0-preview.3/SceneForge-demo.mp4). It was assembled through the installed MCP server and rendered in SceneForge, using original synthetic visuals, local narration, timed graphics and captions. [How the sample was made](docs/DEMO.md).
 
 ## Make a video
 
@@ -85,4 +85,4 @@ npm run desktop
 
 ## License
 
-The independent SceneForge implementation is [MIT licensed](LICENSE). Dependencies retain their own licenses. FFmpeg built with x264 is GPL-2.0-or-later and runs as a separate command-line program. The release includes its notices and provides the matching **[SceneForge-runtime-sources.zip](https://github.com/Samin12/SceneForge/releases/download/v0.1.0-preview.2/SceneForge-runtime-sources.zip)** beside the application download. See [third-party notices](THIRD_PARTY_NOTICES.md).
+The independent SceneForge implementation is [MIT licensed](LICENSE). Dependencies retain their own licenses. FFmpeg built with x264 is GPL-2.0-or-later and runs as a separate command-line program. The release includes its notices and provides the matching **[SceneForge-runtime-sources.zip](https://github.com/Samin12/SceneForge/releases/download/v0.1.0-preview.3/SceneForge-runtime-sources.zip)** beside the application download. See [third-party notices](THIRD_PARTY_NOTICES.md).

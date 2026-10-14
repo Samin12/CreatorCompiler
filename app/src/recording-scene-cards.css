@@ -30,6 +30,9 @@
 .rsc-scene-container:last-child>.rsc-add-between{height:36px;margin-top:12px}
 .rsc-scene-name,.rsc-archive-toggle{line-height:16px}.rsc-record-tile{font-size:14px!important;line-height:20px}
 .rsc-scene-menu-anchor>.rsc-gear{width:36px;height:36px}.rsc-gear>svg{width:16px;height:16px}
+.rsc-scene-grip{display:flex;align-items:center;justify-content:center;flex:0 0 24px;height:28px;margin:-4px 0 -4px -6px;border:0;border-radius:4px;background:transparent;color:var(--muted)!important;cursor:grab!important}.rsc-scene-grip:hover:not(:disabled){background:var(--input)}.rsc-scene-grip:active{cursor:grabbing!important}
+.rsc-scene.is-drop-before::before,.rsc-scene.is-drop-after::after{content:'';position:absolute;left:0;right:0;height:3px;border-radius:2px;background:var(--rsc-blue);pointer-events:none}.rsc-scene.is-drop-before::before{top:-9px}.rsc-scene.is-drop-after::after{bottom:-9px}
+.rsc-quick-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.rsc-quick-actions>button{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:30px;border:1px solid var(--line);border-radius:5px;background:transparent;padding:5px 9px;font-size:12px!important;line-height:18px}.rsc-quick-actions>button:hover:not(:disabled){background:var(--input)}
 .rsc-take-menu-anchor>.rsc-gear>svg{width:13px;height:13px}
 @media(max-width:600px){.rsc-scene{padding:20px}.rsc-script{font-size:14px;line-height:20px}.recording-scene-cards{padding:16px 12px}}
 @media(prefers-reduced-motion:reduce){.rsc-add-between{transition:none!important}}

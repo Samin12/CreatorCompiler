@@ -3,8 +3,9 @@ import {captionsFromWords} from './ai.js';
 import {trimProject} from './mcp.js';
 import {clipDuration,projectDuration,defaultTransform,defaultEffects,narrationPriority,type Project,type Clip,type Caption,type Element,type Media,type AISuggestion} from '../shared/types.js';
 import type {AutomationChange} from '../shared/automation.js';
+import {splitClipForScene,scopedCutProject,type SceneScope} from './automation-scope.js';
 export type Word={text:string;start:number;end:number};
-export type PlanOperation={id:string;kind:'cut';start:number;end:number}|{id:string;kind:'elements';elements:Element[]}|{id:string;kind:'layout';background:Media};
+export type PlanOperation={id:string;kind:'cut';start:number;end:number;sceneScope?:SceneScope}|{id:string;kind:'elements';elements:Element[]}|{id:string;kind:'layout';background:Media;sceneScope?:SceneScope};
 export interface NarrationWindow {clip:Clip;start:number;end:number;}
 const hash=(x:unknown)=>createHash('sha256').update(JSON.stringify(x)).digest('hex');
 export function narrationWindows(p:Project):NarrationWindow[]{
@@ -43,11 +44,12 @@ export function planCuts(p:Project,silences:AISuggestion[]){
  return {changes,operations,warnings:['Cuts ripple every synchronized track, captions, scenes, graphics and cursor timing together. Preview and listen to joins before applying.','Only verified quiet gaps are selected automatically. Repeated phrases and optional Claude narrative cuts need your review; meaning is not automatically certified.']};
 }
 const element=(id:string,text:string,start:number,duration:number,box:Partial<Element>):Element=>({id,type:'text',text,start,duration,x:.025,y:.06,width:.72,height:.12,fontSize:44,color:'#F4F1EC',background:'#1E1D1Bee',opacity:1,rotation:0,...box});
-export function planVisuals(p:Project,background:Media){
+export function planVisuals(p:Project,background:Media,scope?:SceneScope){
  const duration=projectDuration(p);if(!duration)throw Error('Add timeline media before visualizing.');const changes:AutomationChange[]=[],operations:PlanOperation[]=[];
- changes.push({id:'proof-layout',category:'layout',label:'Dark dot grid, proof panel and camera tile',reason:'Uses your existing screen recordings in the left panel and camera on the right. Source timing and audio remain unchanged. Existing overlay clips stay in place.',selected:true});operations.push({id:'proof-layout',kind:'layout',background});
+ changes.push({id:'proof-layout',category:'layout',label:'Dark dot grid, proof panel and camera tile',reason:'Uses your existing screen recordings in the left panel and camera on the right. Source timing and audio remain unchanged. Existing overlay clips stay in place.',selected:true});operations.push({id:'proof-layout',kind:'layout',background,sceneScope:scope});
  const scenes=p.scenes.filter(s=>s.duration>0).slice(0,100);if(!scenes.length)scenes.push({id:'timeline',name:p.name,script:'',notes:'',start:0,duration});
- const warnings=['Existing recordings are evidence sources, not independently fact-checked claims. External pages, figures and assets have not been researched or fabricated.','The dot grid is static; this treatment does not reproduce the full reference animation workflow.'];
+ const warnings=['Existing recordings are evidence sources, not independently fact-checked claims. External pages, figures and assets have not been researched or fabricated.'];
+ if(p.canvas.backgroundPattern!=='moving-dots')warnings.push('The dot grid is static; this treatment does not reproduce the full reference animation workflow.');
  for(const [index,s] of scenes.entries()){const title=s.name.trim()||`Chapter ${index+1}`,id='chapter-'+s.id,end=Math.min(duration,s.start+s.duration),d=end-s.start;if(d<=0)continue;
   const titleDuration=Math.min(1.6,d);const elements=[element(id+'-title',title,s.start,titleDuration,{x:.01,y:.3,width:.7676,height:.25,fontSize:Math.max(14,p.canvas.height*.052),background:'#1E1D1Bf2'}),element(id+'-badge',`${index+1}/${scenes.length}\n${title}`,s.start,d,{x:.7966,y:.045,width:.1843,height:.1389,fontSize:Math.max(10,p.canvas.height*.024),background:'#1E1D1B'})];
   changes.push({id,category:'chapter',start:s.start,end,label:`Chapter ${index+1}: ${title}`,reason:'Title comes from your scene name; adds a 1.6-second panel slate and persistent chapter badge without inserting pauses.',selected:true});operations.push({id,kind:'elements',elements});
@@ -64,14 +66,27 @@ export function planVisuals(p:Project,background:Media){
 }
 export function applyOperations(before:Project,operations:PlanOperation[],ids:string[]):Project{
  const selected=new Set(ids),ops=operations.filter(o=>selected.has(o.id));if(selected.size!==ops.length)throw Error('Unknown or duplicate proposal change.');let p=structuredClone(before);const cuts=ops.filter((o):o is Extract<PlanOperation,{kind:'cut'}>=>o.kind==='cut').map(o=>[o.start,o.end]);
- if(cuts.length){p=trimProject(p,cuts,true);const merged:number[][]=[];for(const [a,b] of cuts.sort((a,b)=>a[0]-b[0])){const last=merged.at(-1);if(last&&a<=last[1])last[1]=Math.max(last[1],b);else merged.push([a,b]);}const map=(t:number)=>t-merged.reduce((n,[a,b])=>n+Math.max(0,Math.min(t,b)-a),0);
+ if(cuts.length){p=ops.filter(o=>o.kind==='cut').every(o=>o.kind==='cut'&&o.sceneScope)?scopedCutProject(p,cuts):trimProject(p,cuts,true);const merged:number[][]=[];for(const [a,b] of cuts.sort((a,b)=>a[0]-b[0])){const last=merged.at(-1);if(last&&a<=last[1])last[1]=Math.max(last[1],b);else merged.push([a,b]);}const map=(t:number)=>t-merged.reduce((n,[a,b])=>n+Math.max(0,Math.min(t,b)-a),0);
+  if(!ops.filter(o=>o.kind==='cut').every(o=>o.kind==='cut'&&o.sceneScope)){
   const words=transcriptWords(before).filter(w=>!merged.some(([a,b])=>w.start<b&&w.end>a)).map(w=>({...w,start:map(w.start),end:map(w.end)}));
   p.captions=[...captionsFromWords(words,before.captionStyle.maxWords),...before.captions.filter(c=>!c.words?.length&&!merged.some(([a,b])=>c.start<b&&c.end>a)).map(c=>({...c,start:map(c.start),end:map(c.end)}))].sort((a,b)=>a.start-b.start);
+  }
  }
  for(const op of ops){if(op.kind==='elements'){const ids=new Set(op.elements.map(e=>e.id));p.elements=p.elements.filter(e=>!ids.has(e.id));p.elements.push(...structuredClone(op.elements));}if(op.kind==='layout'){
-   p.canvas={...p.canvas,background:'#121212',padding:0,radius:0};if(!p.media.some(m=>m.id===op.background.id))p.media.push(op.background);
-   p.clips=p.clips.filter(c=>c.id!=='automation-dot-grid');p.clips.unshift({id:'automation-dot-grid',name:'Proof-first dot grid',mediaId:op.background.id,track:'screen',start:0,sourceIn:0,sourceOut:projectDuration(p),speed:1,gain:0,muted:true,zIndex:-1000,transform:{...defaultTransform(),fit:'cover'},effects:defaultEffects()});
-   p.clips=p.clips.map(c=>c.id==='automation-dot-grid'?c:c.track==='screen'&&(c.zIndex??0)>=0?{...c,transform:{...c.transform,x:.01,y:.0178,width:.7676,height:.9644,fit:'contain',borderRadius:p.canvas.height*.0178}}:c.track==='camera'?{...c,transform:{...c.transform,x:.7966,y:.2126,width:.1843,height:.5747,fit:'cover',borderRadius:p.canvas.height*.01778}}:c);
+   if(!op.sceneScope)p.canvas={...p.canvas,background:'#121212',padding:0,radius:0};
+   const backgroundId=op.sceneScope?'automation-dot-grid-'+op.sceneScope.id:'automation-dot-grid';
+   p.clips=p.clips.filter(c=>c.id!==backgroundId);
+   // The animated canvas must remain visible behind all scene content.
+   if(p.canvas.backgroundPattern!=='moving-dots'){
+    if(!p.media.some(m=>m.id===op.background.id))p.media.push(op.background);
+    const start=op.sceneScope?.start??0,duration=op.sceneScope?op.sceneScope.end-start:projectDuration(p);
+    p.clips.unshift({id:backgroundId,name:'Proof-first dot grid',mediaId:op.background.id,track:'screen',start,sourceIn:0,sourceOut:duration,speed:1,gain:0,muted:true,zIndex:-1000,transform:{...defaultTransform(),fit:'cover'},effects:defaultEffects()});
+   }
+   p.clips=p.clips.flatMap(c=>{
+    if((c.zIndex??0)<0||!['screen','camera'].includes(c.track))return[c];
+    const parts=op.sceneScope?splitClipForScene(c,op.sceneScope):[{clip:c,inside:true}];
+    return parts.map(({clip,inside})=>!inside?clip:{...clip,transform:{...clip.transform,...(clip.track==='screen'?{x:.01,y:.0178,width:.7676,height:.9644,fit:'contain' as const,borderRadius:p.canvas.height*.0178}:{x:.7966,y:.2126,width:.1843,height:.5747,fit:'cover' as const,borderRadius:p.canvas.height*.01778})}});
+   });
   }}return p;
 }
 /** Small independent BMP writer: static geometric background, no proprietary asset. */

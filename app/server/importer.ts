@@ -34,6 +34,8 @@ export async function importBorumi(input:string,options:{roundtripDirectory?:str
  }finally{db.close()}
  if(!data.projects.length)throw new Error('Borumi document has no project row.');
  const original=data.projects[0];const p=createProject(`${original.name||'Imported project'} — imported`);p.scenes=[];
+ // New-project styling must never change an imported document, even if its background is unsupported.
+ delete p.canvas.backgroundPattern;p.canvas.background='#171b27';
  const mapping:BorumiMapping={scenes:{},media:{},clips:{},elements:{}};
  const warnings=new Set<string>(); const unmapped:Row[]=[];
  const retainTransitions=(segment:Row,k:Row,keys:string[])=>{
@@ -44,7 +46,7 @@ export async function importBorumi(input:string,options:{roundtripDirectory?:str
  const target=decode(original.render_target,{}).mode??{};
  p.canvas.width=Math.max(1,numeric(target.width,1920));p.canvas.height=Math.max(1,numeric(target.height,1080));p.canvas.padding=0;p.canvas.radius=0;
  const canvasDimension=Math.max(1,Math.min(p.canvas.width,p.canvas.height));
- const timeline=data.project_timeline[0]??{};const background=decode(timeline.background,{}).main_kind;
+ const timeline=data.project_timeline[0]??{};const background=decode(timeline.background,{})?.main_kind;
  if(background?.kind==='Color'||background?.kind==='Solid')p.canvas.background=rgb(background.color)||p.canvas.background;
  else if(background)warnings.add(`Canvas background ${background.kind} retained as source metadata; choose a new canvas background.`);
  const mediaDir=path.join(path.dirname(dbPath),'medias');let filenames:string[]=[];

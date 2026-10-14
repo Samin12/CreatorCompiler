@@ -9,6 +9,8 @@ import {trackedCrop} from '../shared/face-tracking';
 import {previewAudioMixer} from './preview-audio';
 import {clipCompositeOrder} from '../shared/timeline-layers';
 import {clipShadowCss} from '../shared/clip-shadow';
+import {canvasBackgroundStyle} from '../shared/canvas-background';
+import {zoomScaleAt} from '../shared/zoom-timing';
 
 function ClipView({clip,media,time,playing,quality,onSelect,project:p,pixelScale,playbackRate}:{clip:Clip;media:Media;time:number;playing:boolean;quality:boolean;onSelect:()=>void;project:Project;pixelScale:number;playbackRate:number}){
  const ref=useRef<HTMLVideoElement|null>(null),audio=useRef<HTMLAudioElement|null>(null),backdrop=useRef<HTMLVideoElement|null>(null),[audioError,setAudioError]=useState(false);
@@ -23,8 +25,7 @@ function ClipView({clip,media,time,playing,quality,onSelect,project:p,pixelScale
  const full=t.x===0&&t.y===0&&t.width===1&&t.height===1&&(clip.zIndex??0)>=0;
  if(full){const pad=Math.min(p.canvas.padding,Math.min(p.canvas.width,p.canvas.height)/3);t.x=pad/p.canvas.width;t.y=pad/p.canvas.height;t.width=1-2*t.x;t.height=1-2*t.y;}
  const zoom=p.zooms.find(z=>z.target===clip.track&&time>=z.start&&time<z.start+z.duration);
- const ramp=zoom?Math.max(.01,Math.min(.3,zoom.duration/3)):1;
- const zoomScale=zoom?(zoom.easing==='smooth'?1+(zoom.scale-1)*Math.max(0,Math.min(1,(time-zoom.start)/ramp,(zoom.start+zoom.duration-time)/ramp)):zoom.scale):1;
+ const zoomScale=zoom?zoomScaleAt(zoom,time):1;
  let position='50% 50%';
  if(e.faceCenter){const tw=Math.max(2,Math.round(p.canvas.width*t.width/2)*2),th=Math.max(2,Math.round(p.canvas.height*t.height/2)*2),crop=trackedCrop(tracking.track?.points??[],sourceTime,media.width||tw,media.height||th,tw,th);position=`${crop.maxX?crop.x/crop.maxX*100:50}% ${crop.maxY?crop.y/crop.maxY*100:50}%`;}
  const mask=vision.frame&&e.background&&e.background!=='none'?{maskImage:`url("${vision.frame.maskUrl}")`,maskMode:'luminance' as const,maskSize:e.faceCenter?'cover':t.fit,maskPosition:position,maskRepeat:'no-repeat'}:{};
@@ -42,12 +43,13 @@ export function Stage({project:p,time,playing,playbackRate=1,onSelect,onImport}:
  useEffect(()=>{if(!ref.current)return;const observer=new ResizeObserver(([entry])=>setWidth(entry.contentRect.width));observer.observe(ref.current);return()=>observer.disconnect();},[]);
  useEffect(()=>{const node=wrapper.current;if(!node)return;const resize=()=>{const style=getComputedStyle(node),availableWidth=node.clientWidth-parseFloat(style.paddingLeft)-parseFloat(style.paddingRight),availableHeight=node.clientHeight-parseFloat(style.paddingTop)-parseFloat(style.paddingBottom),ratio=p.canvas.width/p.canvas.height;const width=Math.max(0,Math.min(availableWidth,availableHeight*ratio));setDimensions({width,height:width/ratio});};const observer=new ResizeObserver(resize);observer.observe(node);resize();return()=>observer.disconnect();},[p.canvas.width,p.canvas.height]);
  const scale=width/p.canvas.width,caption=p.captionStyle.enabled?p.captions.find(c=>time>=c.start&&time<c.end):null;
+ const pattern=p.canvas.backgroundPattern==='moving-dots';
  const point=[...p.cursor.points].reverse().find(point=>point.time<=time);
  const mediaById=useMemo(()=>new Map(p.media.map(m=>[m.id,m])),[p.media]);
  const active=p.clips.filter(c=>time>=c.start&&time<c.start+clipDuration(c));
  const visual=active.filter(c=>['screen','camera','overlay'].includes(c.track));
  const audio=active.filter(c=>['audio','music'].includes(c.track));
- return <div className="stage-wrap" ref={wrapper}><div ref={ref} className="stage" style={{...dimensions,flexShrink:0,background:p.canvas.background}}>
+ return <div className="stage-wrap" ref={wrapper}><div ref={ref} className="stage" style={{...dimensions,flexShrink:0,background:p.canvas.background,...(pattern?canvasBackgroundStyle(p.canvas,time,scale):{})}}>
   <div className="stage-inner" style={{inset:0}}>
    {[...visual].sort((a,b)=>clipCompositeOrder(a,p)-clipCompositeOrder(b,p)).map(c=>{const m=mediaById.get(c.mediaId);return m?<div key={c.id} className="stage-layer"><ClipView clip={c} media={m} time={time} playing={playing} quality={p.settings.previewQuality==='proxy'} onSelect={()=>onSelect(c.id)} project={p} pixelScale={scale} playbackRate={playbackRate}/></div>:null;})}
    {audio.map(c=>{const m=mediaById.get(c.mediaId);return m?<ClipView key={c.id} clip={c} media={m} time={time} playing={playing} quality={false} onSelect={()=>onSelect(c.id)} project={p} pixelScale={scale} playbackRate={playbackRate}/>:null;})}
@@ -55,6 +57,6 @@ export function Stage({project:p,time,playing,playbackRate=1,onSelect,onImport}:
   {p.elements.filter(e=>time>=e.start&&time<e.start+e.duration).map(e=><div key={e.id} className={`stage-element element-${e.type}`} onClick={event=>{event.stopPropagation();onSelect(e.id);}} style={{left:`${e.x*100}%`,top:`${e.y*100}%`,width:`${e.width*100}%`,height:`${e.height*100}%`,fontSize:e.fontSize*scale,color:e.color,background:e.type==='arrow'?'transparent':e.background,opacity:e.opacity,transform:`rotate(${e.rotation}deg)`,border:e.type==='rectangle'||e.type==='ellipse'?`${Math.max(1,3*scale)}px solid ${e.color}`:undefined,backdropFilter:e.type==='blur'?'blur(12px)':undefined}}>{e.type==='text'?e.text:e.type==='arrow'?<svg viewBox="0 0 100 40" preserveAspectRatio="none"><path d="M2 20H90 M72 4L94 20L72 36" fill="none" stroke={e.color} strokeWidth="4"/></svg>:null}</div>)}
   {caption&&<div className={`stage-caption caption-${p.captionStyle.position}`} style={{fontSize:p.captionStyle.fontSize*scale,color:p.captionStyle.color}}><span style={{background:p.captionStyle.background}}>{caption.text}</span></div>}
   {p.cursor.enabled&&point&&point.visible!==false&&<div className={`stage-cursor ${p.cursor.highlight?'has-highlight':''}`} style={{left:`${point.x*100}%`,top:`${point.y*100}%`,width:p.cursor.size*scale,color:p.cursor.color}}><svg viewBox="0 0 24 32"><path d="M2 1v27l7-7 6 10 5-3-6-10 10-1z" fill="currentColor" stroke="#171b27"/></svg></div>}
-  {!p.clips.length&&<button className="stage-empty" onClick={onImport}><div className="stage-empty-icon"><Film size={32}/></div><strong>Your story starts here</strong><span>Import a video, record a take, or add an element.</span><span className="button primary"><Plus size={14}/>Import media</span></button>}
+  {!p.clips.length&&<button className="stage-empty" style={pattern?{background:'transparent',color:'#f4f4f4'}:undefined} onClick={onImport}><div className="stage-empty-icon"><Film size={32}/></div><strong style={pattern?{color:'#f4f4f4'}:undefined}>Your story starts here</strong><span style={pattern?{color:'#b8b8b8'}:undefined}>Import a video, record a take, or add an element.</span><span className="button primary"><Plus size={14}/>Import media</span></button>}
  </div><div className="stage-caption-label"><span>{p.canvas.width} × {p.canvas.height}</span><span>{p.settings.previewQuality==='proxy'?'Adaptive preview':'Original quality'}</span></div></div>;
 }

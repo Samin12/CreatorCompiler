@@ -1,4 +1,4 @@
-import {clipDuration,makeId,projectDuration,type CursorPoint,type Project,type Scene} from '../shared/types';
+import {clipDuration,clipEffectTiming,makeId,projectDuration,type CursorPoint,type Project,type Scene} from '../shared/types';
 import {cutTimelineRange} from '../shared/timeline-edits';
 const EPS=1e-7;
 function timelineEnd(p:Project){const ends=[projectDuration(p),...p.captions.map(c=>c.end),...p.zooms.map(z=>z.start+z.duration),...p.cursor.points.map(c=>c.time)];if(ends.some(n=>!Number.isFinite(n)||n<0))throw Error('Timeline timing is invalid. Fix it before arranging recording scenes.');return Math.max(...ends);}
@@ -72,21 +72,49 @@ export function moveRecordingScene(p:Project,id:string,beforeId?:string):void {
  const blocks:Block[]=p.scenes.map((s,i)=>({scene:s,start:s.start,end:p.scenes[i+1]?.start??Math.max(s.start+s.duration,end),destination:0}));
  let next=first;for(const scene of order){const block=blocks.find(b=>b.scene.id===scene.id)!;block.destination=next;next+=block.end-block.start;}
  const portions=[...(first>0?[{start:0,end:first,destination:0}]:[]),...blocks.filter(b=>b.end>b.start+EPS)];
- const deltaFor=(start:number,stop:number,label:string)=>{
+ const mapInterval=(start:number,stop:number,label:string)=>{
   if(!Number.isFinite(start)||!Number.isFinite(stop)||start<0||stop<start||stop>end+EPS)throw Error(`${label} has invalid timing. Fix it before moving this scene.`);
-  const covered=portions.filter(b=>stop-start>EPS?start<b.end-EPS&&stop>b.start+EPS:start>=b.start-EPS&&start<b.end-EPS);
-  if(!covered.length){if(Math.abs(start-end)<=EPS)return next-end;throw Error(`${label} is outside the scene timeline. Move it inside a scene before reordering.`);}
-  const delta=covered[0].destination-covered[0].start;
-  if(covered.some(b=>Math.abs(b.destination-b.start-delta)>EPS))throw Error(`${label} crosses a scene boundary. Split or shorten it at the boundary before moving this scene.`);
-  return delta;
+  if(stop-start<=EPS){
+   const block=portions.find(b=>start>=b.start-EPS&&start<b.end-EPS);
+   if(block)return [{start,stop,delta:block.destination-block.start}];
+   if(Math.abs(start-end)<=EPS)return [{start,stop,delta:next-end}];
+   throw Error(`${label} is outside the scene timeline.`);
+  }
+  const result:Array<{start:number;stop:number;delta:number}>=[];
+  for(const block of portions){
+   const lo=Math.max(start,block.start),hi=Math.min(stop,block.end);if(hi-lo<=EPS)continue;
+   const delta=block.destination-block.start,previous=result.at(-1);
+   if(previous&&Math.abs(previous.delta-delta)<=EPS&&Math.abs(previous.stop-lo)<=EPS)previous.stop=hi;
+   else result.push({start:lo,stop:hi,delta});
+  }
+  if(Math.abs(result.reduce((sum,piece)=>sum+piece.stop-piece.start,0)-(stop-start))>EPS)throw Error(`${label} is outside the scene timeline.`);
+  return result;
  };
- for(const clip of draft.clips)clip.start+=deltaFor(clip.start,clip.start+clipDuration(clip),'A clip');
- for(const caption of draft.captions){
-  const delta=deltaFor(caption.start,caption.end,'A caption');
-  for(const word of caption.words??[])if(Math.abs(deltaFor(word.start,word.end,'A caption word')-delta)>EPS)throw Error('A caption word crosses a scene boundary. Split the caption before moving this scene.');
-  caption.start+=delta;caption.end+=delta;for(const word of caption.words??[]){word.start+=delta;word.end+=delta;}
- }
- for(const key of ['elements','zooms']as const)for(const item of draft[key])item.start+=deltaFor(item.start,item.start+item.duration,key==='zooms'?'A zoom':'A graphic');
+ draft.clips=draft.clips.flatMap(clip=>{
+  const stop=clip.start+clipDuration(clip),media=draft.media.find(m=>m.id===clip.mediaId);
+  // A stationary canvas-wide background is independent of scene order.
+  if(clip.zIndex===-1000&&media?.kind==='image'&&clip.start<=EPS&&stop>=end-EPS&&!clip.effects.fadeIn&&!clip.effects.fadeOut)return [clip];
+  const parts=mapInterval(clip.start,stop,'A clip'),timing=clipEffectTiming(clip);
+  return parts.map((part,index)=>({...clip,id:index?makeId():clip.id,start:part.start+part.delta,
+   sourceIn:parts.length===1?clip.sourceIn:clip.sourceIn+(part.start-clip.start)*clip.speed,
+   sourceOut:parts.length===1?clip.sourceOut:Math.min(clip.sourceOut,clip.sourceIn+(part.stop-clip.start)*clip.speed),
+   ...(parts.length>1?{effectTiming:{sourceIn:timing.sourceIn,sourceOut:timing.sourceOut}}:{})}));
+ });
+ draft.captions=draft.captions.flatMap(caption=>{
+  for(const word of caption.words??[])if(!Number.isFinite(word.start)||!Number.isFinite(word.end)||word.start<caption.start-EPS||word.end>caption.end+EPS||word.end<=word.start)throw Error('A caption word is outside its caption or has invalid timing. Fix the word timing before moving this scene.');
+  const parts=mapInterval(caption.start,caption.end,'A caption');
+  return parts.map((part,index)=>{
+   const words=caption.words?.filter(word=>word.start<part.stop-EPS&&word.end>part.start+EPS).map(word=>({...word,start:Math.max(word.start,part.start)+part.delta,end:Math.min(word.end,part.stop)+part.delta}));
+   return {...caption,id:index?makeId():caption.id,start:part.start+part.delta,end:part.stop+part.delta,
+    ...(words?{words,text:parts.length>1?words.map(word=>word.text).join(' ').replace(/\s+/g,' ').trim():caption.text}:{})};
+  });
+ });
+ draft.elements=draft.elements.flatMap(item=>mapInterval(item.start,item.start+item.duration,'A graphic').map((part,index)=>({...item,id:index?makeId():item.id,start:part.start+part.delta,duration:part.stop-part.start})));
+ draft.zooms=draft.zooms.flatMap(zoom=>{
+  const parts=mapInterval(zoom.start,zoom.start+zoom.duration,'A zoom');
+  return parts.map((part,index)=>({...zoom,id:index?makeId():zoom.id,start:part.start+part.delta,duration:part.stop-part.start,
+   ...(parts.length>1?{effectTiming:{offset:(zoom.effectTiming?.offset??0)+part.start-zoom.start,duration:zoom.effectTiming?.duration??zoom.duration}}:{})}));
+ });
  const points=[...p.cursor.points].sort((a,b)=>a.time-b.time);
  if(points.length){
   const movedPoints=points.filter(pt=>pt.time<first).map(pt=>({...pt}));

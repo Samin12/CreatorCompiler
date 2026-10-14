@@ -18,7 +18,7 @@ export type ShortcutAction =
   | 'zoomOut' | 'zoomIn' | 'deleteRipple' | 'deleteLeaveGap' | 'split' | 'trimLeft' | 'trimRight' | 'toggleSnapping' | 'toggleScrubbing'
   | 'timelineScroll' | 'timelineZoom' | 'selectInsideGroup' | 'createSceneAtCursor' | 'deleteOrMergeBackward' | 'recordingPresets'
   | 'closeProject' | 'quit' | 'record' | 'tryAgain' | 'stopRecord' | 'pauseRecord' | 'previousSentence' | 'nextSentence' | 'previousWord' | 'nextWord'
-  | 'saveProject';
+  | 'saveProject' | 'toggleWaveforms';
 export interface ShortcutDefinition {
   id: ShortcutAction;
   label: string;
@@ -84,6 +84,7 @@ export const shortcutDefinitions: readonly ShortcutDefinition[] = [
   def('nextSentence', 'Go to next sentence', 'recorder', [globalKey('ArrowDown')], {availability: 'global', repeat: true}),
   def('previousWord', 'Go to previous word', 'recorder', [globalKey('ArrowLeft')], {availability: 'global', repeat: true}),
   def('nextWord', 'Go to next word', 'recorder', [globalKey('ArrowRight')], {availability: 'global', repeat: true}),
+  def('toggleWaveforms', 'Show or hide waveforms', 'edit', [key('E')], {extension:true,description:'Show source audio loudness inside timeline clips.'}),
   def('saveProject', 'Save project', 'app', [key('S', 'Mod')], {extension: true, description: 'Save the current SceneForge project.'}),
 ];
 export type ShortcutOverrides = Partial<Record<ShortcutAction, ShortcutBinding[]>>;

@@ -84,7 +84,7 @@ import {exportNewBorumiProject,planNewBorumiProject} from './borumi-new-project.
 
 test('new SceneForge project uses only clean schema metadata, and its AV content reimports',async()=>{const f=await fixture();try{
  const source=new DatabaseSync(f.file);source.exec('CREATE TABLE _borumi_migrations(id INTEGER PRIMARY KEY,sql TEXT NOT NULL)');for(let i=0;i<39;i++)source.prepare('INSERT INTO _borumi_migrations VALUES(?,?)').run(i,'-- synthetic schema version');source.close();
- const template=await importBorumi(f.bundle,{roundtripDirectory:f.preservationRoot}),p=createProject('New authored project');p.canvas.padding=0;p.canvas.radius=0;p.scenes[0].duration=3;p.scenes[0].script='Synthetic script only';p.media=[{id:'newmedia',name:'Synthetic',path:path.join(f.bundle,'medias','m.mov'),kind:'video',duration:30,width:1920,height:1080,hasAudio:true}];p.clips=[{id:'newclip',mediaId:'newmedia',name:'Synthetic',track:'screen',start:0,sourceIn:2,sourceOut:5,speed:1,gain:.5,muted:false,transform:defaultTransform(),effects:defaultEffects()}];
+ const template=await importBorumi(f.bundle,{roundtripDirectory:f.preservationRoot}),p=createProject('New authored project');delete p.canvas.backgroundPattern;p.canvas.padding=0;p.canvas.radius=0;p.scenes[0].duration=3;p.scenes[0].script='Synthetic script only';p.media=[{id:'newmedia',name:'Synthetic',path:path.join(f.bundle,'medias','m.mov'),kind:'video',duration:30,width:1920,height:1080,hasAudio:true}];p.clips=[{id:'newclip',mediaId:'newmedia',name:'Synthetic',track:'screen',start:0,sourceIn:2,sourceOut:5,speed:1,gain:.5,muted:false,transform:defaultTransform(),effects:defaultEffects()}];
  const plan=planNewBorumiProject(p);assert.equal(plan.supported,true,plan.blockers.join('\n'));
  const result=await exportNewBorumiProject(p,{...f,templateProject:template});const reopened=await importBorumi(result.path);assert.equal(reopened.scenes[0].script,'Synthetic script only');assert.equal(reopened.clips.filter(c=>c.track==='screen').length,1);assert.equal(reopened.clips.filter(c=>c.track==='audio').length,1);assert.equal(reopened.clips[0].sourceIn,2);assert.equal(reopened.clips[1].gain,.5);
  const db=new DatabaseSync(path.join(result.path,'project.bmproj'),{readOnly:true});try{assert.equal((db.prepare('SELECT count(*) n FROM _borumi_migrations').get() as any).n,39);assert.equal(db.prepare("SELECT name FROM sqlite_master WHERE name='unknown_future'").get(),undefined);assert.equal((db.prepare('SELECT count(*) n FROM project_commits').get() as any).n,0);}finally{db.close()}
@@ -92,7 +92,7 @@ test('new SceneForge project uses only clean schema metadata, and its AV content
  }finally{await rm(f.root,{recursive:true,force:true})}});
 
 test('new-project export blocks unsupported fidelity and scene or media mistakes',()=>{
- const p=createProject();p.canvas.padding=0;p.canvas.radius=0;p.scenes[0].duration=10;p.captions=[{id:'c',start:0,end:1,text:'kept'}];const plan=planNewBorumiProject(p);assert.equal(plan.supported,false);assert.ok(plan.blockers.some(x=>x.includes('Captions')));assert.ok(plan.blockers.some(x=>x.includes('scene duration')));
+ const p=createProject();delete p.canvas.backgroundPattern;p.canvas.padding=0;p.canvas.radius=0;p.scenes[0].duration=10;p.captions=[{id:'c',start:0,end:1,text:'kept'}];const plan=planNewBorumiProject(p);assert.equal(plan.supported,false);assert.ok(plan.blockers.some(x=>x.includes('Captions')));assert.ok(plan.blockers.some(x=>x.includes('scene duration')));
 });
 
 import {decodeBorumiScript,encodeBorumiScript} from './borumi-script.js';
@@ -118,7 +118,7 @@ test('extended effect timing cannot silently lose split-clip continuity on nativ
  const f=await fixture();try{
   f.project.clips[0].effectTiming={sourceIn:0,sourceOut:30};
   assert.equal((await planBorumiRoundtrip(f.project,f.preservationRoot)).supported,false);
-  const p=createProject();p.canvas.padding=0;p.canvas.radius=0;p.scenes[0].duration=3;p.media=[{id:'m',name:'Synthetic',path:'/synthetic.mp4',kind:'video',duration:10,width:320,height:180,hasAudio:true}];p.clips=[{id:'c',mediaId:'m',name:'Synthetic',track:'screen',start:0,sourceIn:2,sourceOut:5,speed:1,gain:1,muted:false,transform:defaultTransform(),effects:defaultEffects()}];
+  const p=createProject();delete p.canvas.backgroundPattern;p.canvas.padding=0;p.canvas.radius=0;p.scenes[0].duration=3;p.media=[{id:'m',name:'Synthetic',path:'/synthetic.mp4',kind:'video',duration:10,width:320,height:180,hasAudio:true}];p.clips=[{id:'c',mediaId:'m',name:'Synthetic',track:'screen',start:0,sourceIn:2,sourceOut:5,speed:1,gain:1,muted:false,transform:defaultTransform(),effects:defaultEffects()}];
   assert.equal(planNewBorumiProject(p).supported,true);p.clips[0].effectTiming={sourceIn:2,sourceOut:5};assert.equal(planNewBorumiProject(p).supported,true);p.clips[0].effectTiming={sourceIn:0,sourceOut:8};assert.ok(planNewBorumiProject(p).blockers.some(x=>x.includes('effect timing')));
  }finally{await rm(f.root,{recursive:true,force:true})}
 });
@@ -206,7 +206,7 @@ test('earlier-scene ripple does not apply a later annotation offset twice',async
 
 test('new native projects preserve explicit clip audio roles before media fallback and legacy defaults',async()=>{const f=await fixture();try{
  const source=new DatabaseSync(f.file);source.exec('CREATE TABLE _borumi_migrations(id INTEGER PRIMARY KEY,sql TEXT NOT NULL)');for(let i=0;i<39;i++)source.prepare('INSERT INTO _borumi_migrations VALUES(?,?)').run(i,'-- synthetic schema version');source.close();
- const template=await importBorumi(f.bundle,{roundtripDirectory:f.preservationRoot}),p=createProject('Audio role interchange');p.canvas.padding=0;p.canvas.radius=0;p.scenes[0].duration=4;
+ const template=await importBorumi(f.bundle,{roundtripDirectory:f.preservationRoot}),p=createProject('Audio role interchange');delete p.canvas.backgroundPattern;p.canvas.padding=0;p.canvas.radius=0;p.scenes[0].duration=4;
  const cases=[{clip:'system',media:'microphone',expected:'system'},{clip:'microphone',media:'system',expected:'microphone'},{clip:undefined,media:'system',expected:'system'},{clip:undefined,media:undefined,expected:'microphone'}] as const;
  p.media=cases.map((item,index)=>({id:`m${index}`,name:`Audio ${index}`,path:path.join(f.bundle,'medias','m.mov'),kind:'video',duration:30,width:1920,height:1080,hasAudio:true,...(item.media?{audioRole:item.media}:{})}));
  p.clips=cases.map((item,index)=>({id:`c${index}`,mediaId:`m${index}`,name:`Audio ${index}`,track:'audio',start:index,sourceIn:0,sourceOut:1,speed:1,gain:1,muted:false,transform:defaultTransform(),effects:defaultEffects(),...(item.clip?{audioRole:item.clip}:{})}));
@@ -219,6 +219,6 @@ test('new and preserved Borumi exports block SceneForge take history before drop
   const {saveProjectTake}=await import('../src/recorded-takes.js');const before=await planBorumiRoundtrip(f.project,f.preservationRoot);assert.equal(before.supported,true,before.blockers.join('\n'));
   saveProjectTake(f.project,{id:'saved-retake',sceneId:f.project.scenes[0].id,createdAt:'2026-10-13',media:[f.project.media[0]],tracks:['camera'],offsets:[0]});
   const plan=await planBorumiRoundtrip(f.project,f.preservationRoot);assert.equal(plan.supported,false);assert.ok(plan.blockers.some(b=>/recorded-take history.*export a video/.test(b)));await assert.rejects(exportBorumiRoundtrip(f.project,f),/recorded-take history/);await assert.rejects(readdir(f.outputRoot),/ENOENT/);assert.deepEqual(await readFile(f.file),f.original);
-  const fresh=createProject('Retake history');fresh.canvas.padding=0;fresh.canvas.radius=0;assert.equal(planNewBorumiProject(fresh).supported,true);saveProjectTake(fresh,{id:'inactive',sceneId:fresh.scenes[0].id,createdAt:'2026-10-13',media:[f.project.media[0]],tracks:['camera'],offsets:[0]});assert.ok(planNewBorumiProject(fresh).blockers.some(b=>b.includes('recorded-take history')));await assert.rejects(exportNewBorumiProject(fresh,{templateProject:f.project,preservationRoot:f.preservationRoot,outputRoot:f.outputRoot}),/recorded-take history/);
+  const fresh=createProject('Retake history');delete fresh.canvas.backgroundPattern;fresh.canvas.padding=0;fresh.canvas.radius=0;assert.equal(planNewBorumiProject(fresh).supported,true);saveProjectTake(fresh,{id:'inactive',sceneId:fresh.scenes[0].id,createdAt:'2026-10-13',media:[f.project.media[0]],tracks:['camera'],offsets:[0]});assert.ok(planNewBorumiProject(fresh).blockers.some(b=>b.includes('recorded-take history')));await assert.rejects(exportNewBorumiProject(fresh,{templateProject:f.project,preservationRoot:f.preservationRoot,outputRoot:f.outputRoot}),/recorded-take history/);
  }finally{await rm(f.root,{recursive:true,force:true})}
 });

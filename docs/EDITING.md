@@ -50,3 +50,19 @@ The magnet button (N) snaps clip edges to nearby clips, scene boundaries and the
 ## Camera frame and shadow
 
 New screen-and-camera takes use a rounded Creator camera frame with a soft shadow. The Layout panel's **Creator** preset applies the companion screen/camera composition. Corner radius and shadow color, opacity, blur and offsets remain editable. Existing edited takes keep their saved styling. The same shadow settings are rendered in the preview and exported video.
+
+## Moving dotted canvas
+
+New projects use a dark dotted background with slow diagonal motion. In Canvas → Background, choose Moving dots or Solid color. Motion follows the playhead and remains continuous through cuts and export chunks. Existing projects and imported media backgrounds are not changed automatically.
+
+Use the timeline layer controls to add video/audio rows, rename custom rows or remove them. Removing a row preserves its clips by returning them to compatible rows; Undo restores the operation.
+
+## Scene groups and scene actions
+
+Drag a scene header in the timeline or the grip on a recording scene card to reorder it. Scene media, captions and timed graphics travel with their scene; boundary-spanning content is split with its source timing retained. Use the scene card menu or Alt+Up/Down for keyboard reordering.
+
+Each scene has Auto-cut and Visualize actions. Review proposals and rendered frames before applying them. Scene-only cuts preserve the other scene groups and move later scenes to close removed time; scene-only visualization changes only that scene’s content. The top toolbar actions still apply to the entire project.
+
+## Timeline space and audio levels
+
+Drag the divider above the timeline upward for more vertical room. Its height is saved on this Mac; double-click the divider to reset it. The zoom buttons, slider and modifier-wheel shortcuts change the timeline scale. Waveforms show the source audio envelope inside clips and follow trims and playback speed; press E or use the waveform button to show or hide them.

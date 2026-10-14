@@ -3,7 +3,7 @@ import type {DragEvent,ReactNode} from 'react';
 import {clipDuration,type Project,type Scene} from '../shared/types';
 import type {SavedTake} from './recorded-takes';
 import {sceneTakes} from './scene-takes';
-import {AudioLines,ChevronDown,FolderOpen,GripVertical,Play,Plus,Settings2,Trash2,Upload} from './Icons';
+import {AudioLines,ChevronDown,FolderOpen,GripVertical,Play,Plus,Scissors,Settings2,Trash2,Upload,WandSparkles} from './Icons';
 import './recording-scene-cards.css';
 
 type ActionResult=void|Promise<void>;
@@ -20,7 +20,9 @@ export interface RecordingSceneCardsProps {
  onDeleteScene:(id:string)=>ActionResult;
  onActivate:(takeId:string)=>ActionResult;
  onMoveTake?:(takeId:string,sceneId:string,archive:boolean)=>ActionResult;
- onMoveScene?:(id:string,beforeId:string)=>ActionResult;
+ onMoveScene?:(id:string,beforeId?:string)=>ActionResult;
+ onAutoCut?:(sceneId:string)=>ActionResult;
+ onVisualize?:(sceneId:string)=>ActionResult;
 }
 interface ListedTake {take:SavedTake;number:number;active:boolean;duration:number;}
 const dragType='application/x-sceneforge-record-card';
@@ -55,7 +57,7 @@ function SceneName({scene,fallback,disabled,onRename}:{scene:Scene;fallback:stri
 export function RecordingSceneCards(props:RecordingSceneCardsProps){
  const {project,takes,disabled}=props,root=useRef<HTMLDivElement>(null),[menu,setMenu]=useState<string|null>(null),[expanded,setExpanded]=useState<Record<string,boolean>>({}),[alt,setAlt]=useState(false),[error,setError]=useState(''),[busy,setBusy]=useState(false),[drag,setDrag]=useState<DragItem|null>(null),[drop,setDrop]=useState<string|null>(null);
  const alive=useRef(true),generation=useRef(0),locked=disabled||busy;
- useEffect(()=>{alive.current=true;generation.current++;setExpanded({});setMenu(null);setError('');setBusy(false);setAlt(false);return()=>{alive.current=false;generation.current++;};},[project.id]);
+ useEffect(()=>{alive.current=true;generation.current++;setExpanded({});setMenu(null);setError('');setBusy(false);setAlt(false);setDrag(null);setDrop(null);return()=>{alive.current=false;generation.current++;};},[project.id]);
  useEffect(()=>{const key=(e:KeyboardEvent)=>{setAlt(e.altKey);if(e.key==='Escape'){setMenu(null);setDrag(null);setDrop(null);}};const blur=()=>setAlt(false);window.addEventListener('keydown',key);window.addEventListener('keyup',key);window.addEventListener('blur',blur);return()=>{window.removeEventListener('keydown',key);window.removeEventListener('keyup',key);window.removeEventListener('blur',blur);};},[]);
  useEffect(()=>{if(locked){setMenu(null);setDrag(null);setDrop(null);}},[locked]);
  useEffect(()=>{if(!menu)return;const close=(event:PointerEvent)=>{if(!(event.target instanceof Element)||!event.target.closest('[data-rsc-menu]'))setMenu(null);};document.addEventListener('pointerdown',close);return()=>document.removeEventListener('pointerdown',close);},[menu]);
@@ -63,7 +65,9 @@ export function RecordingSceneCards(props:RecordingSceneCardsProps){
  const startDrag=(e:DragEvent,item:DragItem)=>{if(locked){e.preventDefault();return;}e.stopPropagation();e.dataTransfer.setData(dragType,JSON.stringify(item));e.dataTransfer.effectAllowed='move';setDrag(item);setMenu(null);};
  const endDrag=()=>{setDrag(null);setDrop(null);};
  const readDrag=(e:DragEvent):DragItem|null=>{try{const value=JSON.parse(e.dataTransfer.getData(dragType));if(value.projectId!==project.id||!['scene','take'].includes(value.kind)||typeof value.id!=='string')return null;if(value.kind==='scene'?!project.scenes.some(s=>s.id===value.id):!takes.some(t=>t.id===value.id))return null;return value;}catch{return null;}};
- const receiveTake=(e:DragEvent,sceneId:string,archive:boolean)=>{e.preventDefault();e.stopPropagation();const value=readDrag(e);endDrag();if(locked||value?.kind!=='take')return;const take=takes.find(t=>t.id===value.id)!;if(take.sceneId!==sceneId){if(props.onMoveTake)invoke(()=>props.onMoveTake!(take.id,sceneId,archive));}else invoke(()=>archive?props.onArchive(take.id):props.onActivate(take.id));};
+ const receiveTake=(e:DragEvent,sceneId:string,archive:boolean)=>{const value=readDrag(e);if(value?.kind!=='take')return;e.preventDefault();e.stopPropagation();endDrag();if(locked)return;const take=takes.find(t=>t.id===value.id)!;if(take.sceneId!==sceneId){if(props.onMoveTake)invoke(()=>props.onMoveTake!(take.id,sceneId,archive));}else invoke(()=>archive?props.onArchive(take.id):props.onActivate(take.id));};
+ const insertionBefore=(e:DragEvent,index:number)=>{const bounds=e.currentTarget.getBoundingClientRect();return e.clientY<bounds.top+bounds.height/2?project.scenes[index].id:project.scenes[index+1]?.id;};
+ const receiveScene=(e:DragEvent,index:number)=>{const value=readDrag(e);if(value?.kind!=='scene')return;e.preventDefault();e.stopPropagation();const beforeId=insertionBefore(e,index);endDrag();if(!locked&&props.onMoveScene&&value.id!==beforeId)invoke(()=>props.onMoveScene!(value.id,beforeId));};
  const menuButton=(id:string,label:string)=> <button type="button" className="rsc-gear" aria-label={label} aria-expanded={menu===id} aria-haspopup="menu" disabled={locked} onClick={e=>{e.stopPropagation();setMenu(menu===id?null:id);}}><Settings2 size={17}/></button>;
  const menuItem=(label:string,action:()=>ActionResult,options:{disabled?:boolean;danger?:boolean;icon?:ReactNode}={})=><button type="button" role="menuitem" disabled={locked||options.disabled} className={options.danger?'rsc-danger':undefined} onClick={()=>invoke(action)}>{options.icon}{label}</button>;
  const renderTake=(item:ListedTake,sceneId:string)=>{const {take,active,number,duration}=item,label=take.name||`Take ${number}`,key=`take:${take.id}`;return <div key={take.id} className="rsc-take" data-take-id={take.id} data-active={active} draggable={!locked} onDragStart={e=>startDrag(e,{projectId:project.id,kind:'take',id:take.id})} onDragEnd={endDrag} onContextMenu={e=>{e.preventDefault();e.stopPropagation();if(!locked)setMenu(key);}}>
@@ -82,14 +86,14 @@ export function RecordingSceneCards(props:RecordingSceneCardsProps){
   {project.scenes.map((scene,index)=>{const all=listSceneTakes(project,takes,scene.id),active=all.filter(t=>t.active),archived=all.filter(t=>!t.active),showArchive=expanded[scene.id]??active.length===0,selected=props.selectedSceneId===scene.id,key=`scene:${scene.id}`;
    const legacyFootage=project.clips.some(c=>!c.recordingTakeId&&!takes.some(t=>t.clipIds?.includes(c.id))&&c.track!=='music'&&c.start<scene.start+scene.duration&&c.start+clipDuration(c)>scene.start&&project.media.some(m=>m.id===c.mediaId&&(m.kind==='video'||m.kind==='audio'))),recorded=active.length>0||legacyFootage,recordOver=alt&&recorded;
    return <div className="rsc-scene-container" key={`${project.id}:${scene.id}`}>
-    {props.onMoveScene&&<div className={`rsc-scene-drop ${drop===`before:${scene.id}`?'is-over':''}`} aria-hidden="true" onDragOver={e=>{if(!locked&&drag?.kind==='scene'&&drag.id!==scene.id){e.preventDefault();setDrop(`before:${scene.id}`);}}} onDragLeave={()=>setDrop(null)} onDrop={e=>{e.preventDefault();const value=readDrag(e);endDrag();if(!locked&&value?.kind==='scene'&&value.id!==scene.id)invoke(()=>props.onMoveScene!(value.id,scene.id));}}/>}
-    <article className={`rsc-scene ${selected?'is-selected':''}`} data-scene-id={scene.id} aria-label={`${scene.name||`Scene ${index+1}`}, ${recorded?'recorded':'not recorded'}`} draggable={!!props.onMoveScene&&!locked} onDragStart={e=>{if(e.target!==e.currentTarget&&(e.target as Element).closest('button,input,[data-take-id]')){if(!(e.target as Element).closest('[data-take-id]'))e.preventDefault();return;}startDrag(e,{projectId:project.id,kind:'scene',id:scene.id});}} onDragEnd={endDrag} onPointerDown={()=>{if(!locked&&props.selectedSceneId!==scene.id)invoke(()=>props.onSelectScene(scene.id));}} onFocus={()=>{if(!locked&&props.selectedSceneId!==scene.id)invoke(()=>props.onSelectScene(scene.id));}}>
-     <header className="rsc-scene-heading"><span className={`rsc-status ${recorded?'is-complete':''}`} title={recorded?'Recorded':'Not recorded'} aria-hidden="true"/><SceneName scene={scene} fallback={`Scene ${index+1}`} disabled={locked} onRename={name=>invoke(()=>props.onRenameScene(scene.id,name))}/><div data-rsc-menu className="rsc-scene-menu-anchor">{menuButton(key,`Settings for ${scene.name||`Scene ${index+1}`}`)}{menu===key&&<CardMenu label="Scene actions">
+    <article className={`rsc-scene ${selected?'is-selected':''} ${drop===`before:${scene.id}`?'is-drop-before':''} ${index===project.scenes.length-1&&drop==='end'?'is-drop-after':''}`} data-scene-id={scene.id} aria-label={`${scene.name||`Scene ${index+1}`}, ${recorded?'recorded':'not recorded'}`} draggable={!!props.onMoveScene&&!locked} onDragStart={e=>{if(e.target!==e.currentTarget&&(e.target as Element).closest('button,input,[data-take-id]')){if(!(e.target as Element).closest('[data-take-id]'))e.preventDefault();return;}startDrag(e,{projectId:project.id,kind:'scene',id:scene.id});}} onDragEnd={endDrag} onDragOver={e=>{if(!locked&&props.onMoveScene&&drag?.kind==='scene'){e.preventDefault();e.dataTransfer.dropEffect='move';const beforeId=insertionBefore(e,index);setDrop(beforeId?`before:${beforeId}`:'end');}}} onDrop={e=>receiveScene(e,index)} onPointerDown={()=>{if(!locked&&props.selectedSceneId!==scene.id)invoke(()=>props.onSelectScene(scene.id));}} onFocus={()=>{if(!locked&&props.selectedSceneId!==scene.id)invoke(()=>props.onSelectScene(scene.id));}}>
+     <header className="rsc-scene-heading">{props.onMoveScene&&<button type="button" className="rsc-scene-grip" draggable={!locked} disabled={locked} aria-label={`Reorder ${scene.name||`Scene ${index+1}`}`} title="Drag to reorder · Alt+↑ / Alt+↓" onClick={e=>e.stopPropagation()} onDragStart={e=>startDrag(e,{projectId:project.id,kind:'scene',id:scene.id})} onDragEnd={endDrag} onKeyDown={e=>{if(!e.altKey||!['ArrowUp','ArrowDown'].includes(e.key))return;e.preventDefault();e.stopPropagation();if(e.key==='ArrowUp'&&index>0)invoke(()=>props.onMoveScene!(scene.id,project.scenes[index-1].id));if(e.key==='ArrowDown'&&index<project.scenes.length-1)invoke(()=>props.onMoveScene!(scene.id,project.scenes[index+2]?.id));}}><GripVertical size={15}/></button>}<span className={`rsc-status ${recorded?'is-complete':''}`} title={recorded?'Recorded':'Not recorded'} aria-hidden="true"/><SceneName scene={scene} fallback={`Scene ${index+1}`} disabled={locked} onRename={name=>invoke(()=>props.onRenameScene(scene.id,name))}/><div data-rsc-menu className="rsc-scene-menu-anchor">{menuButton(key,`Settings for ${scene.name||`Scene ${index+1}`}`)}{menu===key&&<CardMenu label="Scene actions">
       {menuItem('Record new…',()=>props.onRecord(scene.id,'replace-matching'))}
       {menuItem('Record over…',()=>props.onRecord(scene.id,'record-over'),{disabled:!recorded})}
       {menuItem('Import media from file…',()=>props.onImport(scene.id),{icon:<Upload size={15}/>})}
       {menuItem('Add scene after',()=>props.onAddScene(scene.id),{icon:<Plus size={15}/>})}
       {props.onMoveScene&&index>0&&menuItem('Move scene up',()=>props.onMoveScene!(scene.id,project.scenes[index-1].id))}
+      {props.onMoveScene&&index<project.scenes.length-1&&menuItem('Move scene down',()=>props.onMoveScene!(scene.id,project.scenes[index+2]?.id))}
       {menuItem('Delete scene',()=>props.onDeleteScene(scene.id),{danger:true,icon:<Trash2 size={15}/>})}
      </CardMenu>}</div></header>
      {scene.script&&<p className="rsc-script" dir="auto">{scene.script}</p>}
@@ -98,6 +102,10 @@ export function RecordingSceneCards(props:RecordingSceneCardsProps){
       {active.map(t=>renderTake(t,scene.id))}
      </div>
      {legacyFootage&&<p className="rsc-legacy-note">Existing scene footage is available in Edit. Its take history is unavailable.</p>}
+     {(props.onAutoCut||props.onVisualize)&&<div className="rsc-quick-actions" aria-label={`Quick actions for ${scene.name||`Scene ${index+1}`}`}>
+      {props.onAutoCut&&<button type="button" disabled={locked||scene.duration<=0} title={scene.duration>0?'Review Auto-cut changes for this scene only':'Add footage to this scene first'} onClick={()=>invoke(()=>props.onAutoCut!(scene.id))}><Scissors size={14}/>Auto-cut</button>}
+      {props.onVisualize&&<button type="button" disabled={locked||scene.duration<=0} title={scene.duration>0?'Review visuals for this scene only':'Add footage to this scene first'} onClick={()=>invoke(()=>props.onVisualize!(scene.id))}><WandSparkles size={14}/>Visualize</button>}
+     </div>}
      {archived.length>0&&<><button type="button" className="rsc-archive-toggle" disabled={locked} aria-expanded={showArchive} onClick={()=>setExpanded({...expanded,[scene.id]:!showArchive})}>{showArchive?<ChevronDown size={15}/>:<FolderOpen size={15}/>}Archived ({archived.length})</button>{showArchive&&<div className={`rsc-takes rsc-archived ${drop===`archive:${scene.id}`?'is-over':''}`} aria-label={`${scene.name||'Scene'} archived takes`} onDragOver={e=>{if(!locked&&drag?.kind==='take'&&(props.onMoveTake||takes.find(t=>t.id===drag.id)?.sceneId===scene.id)){e.preventDefault();e.stopPropagation();setDrop(`archive:${scene.id}`);}}} onDragLeave={()=>setDrop(null)} onDrop={e=>receiveTake(e,scene.id,true)}>{archived.map(t=>renderTake(t,scene.id))}</div>}</>}
     </article>
     <button type="button" className="rsc-add-between" disabled={locked} onClick={()=>invoke(()=>props.onAddScene(scene.id))}><Plus size={15}/> {index===project.scenes.length-1?'Add scene':'Add scene here'}</button>

@@ -8,7 +8,7 @@ export interface Media {
  fps?:number; hasAudio?:boolean; size?:number; thumbnail?:string; proxyPath?:string; waveform?:number[];
  audioRole?:AudioRole;
 }
-export interface Canvas { width:number; height:number; fps:number; background:string; backgroundMediaId?:string; padding:number; radius:number; }
+export interface Canvas { width:number; height:number; fps:number; background:string; backgroundPattern?:'moving-dots'; backgroundMediaId?:string; padding:number; radius:number; }
 export interface Transform { x:number; y:number; width:number; height:number; rotation:number; opacity:number; fit:'contain'|'cover'; borderRadius:number; shadow?:{x:number;y:number;blur:number;color:string}; }
 export interface Clip {
  id:string; mediaId:string; name:string; track:TrackKind; start:number; sourceIn:number; sourceOut:number; speed:number;
@@ -32,7 +32,7 @@ export interface Element {
  id:string; type:'text'|'rectangle'|'ellipse'|'arrow'|'highlight'|'blur'; start:number; duration:number; text:string;
  x:number;y:number;width:number;height:number;color:string;background:string;fontSize:number;opacity:number;rotation:number;
 }
-export interface Zoom { id:string; start:number; duration:number; scale:number; x:number;y:number; target:'screen'|'camera'; easing:'linear'|'smooth'; }
+export interface Zoom { id:string; start:number; duration:number; scale:number; x:number;y:number; target:'screen'|'camera'; easing:'linear'|'smooth'; effectTiming?:{offset:number;duration:number}; }
 export interface CursorPoint { time:number;x:number;y:number;pressed?:boolean;visible?:boolean; }
 export interface CursorSettings { enabled:boolean; size:number; color:string; highlight:boolean; smoothing:number; points:CursorPoint[]; }
 /** Captured assets remain available even when their take has no active timeline clips. */
@@ -69,4 +69,4 @@ export function narrationPriority(clip:Clip,media?:Media){const role=clip.audioR
 export function clipEffectTiming(clip:Clip){const sourceIn=Math.min(clip.sourceIn,clip.effectTiming?.sourceIn??clip.sourceIn),sourceOut=Math.max(clip.sourceOut,clip.effectTiming?.sourceOut??clip.sourceOut);return {sourceIn,sourceOut,offset:(clip.sourceIn-sourceIn)/clip.speed,duration:(sourceOut-sourceIn)/clip.speed};}
 export const projectDuration=(p:Project)=>Math.max(0,...p.clips.map(c=>c.start+clipDuration(c)),...p.elements.map(e=>e.start+e.duration),...p.scenes.map(s=>s.start+s.duration));
 export const makeId=()=>globalThis.crypto.randomUUID();
-export function createProject(name='Untitled project'):Project {const now=new Date().toISOString();return {version:1,id:makeId(),name,createdAt:now,updatedAt:now,canvas:{width:1920,height:1080,fps:30,background:'#171b27',padding:48,radius:20},scenes:[{id:makeId(),name:'Scene 1',script:'',notes:'',start:0,duration:0}],media:[],clips:[],captions:[],captionStyle:{enabled:true,fontSize:48,color:'#ffffff',background:'#10131ccc',position:'bottom',maxWords:7},elements:[],zooms:[],cursor:{enabled:false,size:24,color:'#ffffff',highlight:false,smoothing:.5,points:[]},notes:'',settings:{previewQuality:'proxy',snap:true,ripple:true,teleprompterSpeed:30,teleprompterFontSize:42,teleprompterMirror:false}};}
+export function createProject(name='Untitled project'):Project {const now=new Date().toISOString();return {version:1,id:makeId(),name,createdAt:now,updatedAt:now,canvas:{width:1920,height:1080,fps:30,background:'#121212',backgroundPattern:'moving-dots',padding:48,radius:20},scenes:[{id:makeId(),name:'Scene 1',script:'',notes:'',start:0,duration:0}],media:[],clips:[],captions:[],captionStyle:{enabled:true,fontSize:48,color:'#ffffff',background:'#10131ccc',position:'bottom',maxWords:7},elements:[],zooms:[],cursor:{enabled:false,size:24,color:'#ffffff',highlight:false,smoothing:.5,points:[]},notes:'',settings:{previewQuality:'proxy',snap:true,ripple:true,teleprompterSpeed:30,teleprompterFontSize:42,teleprompterMirror:false}};}

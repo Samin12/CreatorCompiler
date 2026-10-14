@@ -12,6 +12,8 @@ import { filterSum } from "./filter-expression.ts";
 import { mediaCapabilityProbe } from "./media-capabilities.ts";
 import { clipCompositeOrder } from "../shared/timeline-layers.ts";
 import { clipShadow } from "../shared/clip-shadow.ts";
+import { canvasBackgroundBMP, canvasBackgroundGeometry, canvasBackgroundRepeatSize, MOVING_DOTS } from "../shared/canvas-background.ts";
+import { zoomTiming } from "../shared/zoom-timing.ts";
 import {
   clipDuration,
   clipEffectTiming,
@@ -260,67 +262,80 @@ export async function thumbnail(m: Media, cacheDir: string): Promise<string> {
     }
   });
 }
+/** Absolute source-level peaks, uniformly covering [0, duration), never normalized. */
 export async function waveform(m: Media, cacheDir: string): Promise<number[]> {
+  if (!m.hasAudio && m.kind !== "audio") return [];
+  if (!Number.isFinite(m.duration) || m.duration <= 0 || m.duration > 86400)
+    throw new Error("Waveform requires a source duration between zero and 24 hours");
   await fs.mkdir(cacheDir, { recursive: true });
-  if (!m.hasAudio) return [];
-  const key = (await identity(m.path)).key,
-    file = path.join(cacheDir, `${key}.wave.json`);
+  const source = await identity(m.path),
+    count = Math.min(1600, Math.max(64, Math.ceil(m.duration * 20))),
+    key = hash(`${source.key}:absolute-channel-peaks-v2:${m.duration}:${count}`),
+    file = path.join(cacheDir, `${key}.wave-v2.json`);
   return unique(file, async () => {
-    if (await exists(file)) return JSON.parse(await fs.readFile(file, "utf8"));
-    const bins = new Array<number>(
-      Math.min(1600, Math.max(64, Math.ceil(m.duration * 20))),
-    ).fill(0);
-    const samplesPer = Math.max(
-      1,
-      Math.ceil((m.duration * 8000) / bins.length),
-    );
-    let sample = 0,
-      pendingByte: Buffer = Buffer.alloc(0);
-    await limited(
-      () =>
-        new Promise<void>((resolve, reject) => {
-          const c = spawn(FFMPEG, [
-            "-v",
-            "error",
-            "-nostdin",
-            "-i",
-            m.path,
-            "-vn",
-            "-ac",
-            "1",
-            "-ar",
-            "8000",
-            "-f",
-            "s16le",
-            "pipe:1",
-          ]);
-          let err = "";
-          c.stdout.on("data", (buf: Buffer) => {
-            const b = pendingByte.length
-              ? Buffer.concat([pendingByte, buf])
-              : buf;
-            const end = b.length - (b.length % 2);
-            for (let i = 0; i < end; i += 2) {
-              const index = Math.min(
-                bins.length - 1,
-                Math.floor(sample++ / samplesPer),
-              );
-              bins[index] = Math.max(
-                bins[index],
-                Math.abs(b.readInt16LE(i)) / 32768,
-              );
-            }
-            pendingByte = b.subarray(end);
-          });
-          c.stderr.on("data", (b) => (err = (err + b).slice(-2000)));
-          c.on("error", reject);
-          c.on("close", (code) => (code ? reject(new Error(err)) : resolve()));
-        }),
-    );
-    await fs.writeFile(file, JSON.stringify(bins));
+    try {
+      const cached: unknown = JSON.parse(await fs.readFile(file, "utf8"));
+      if (Array.isArray(cached) && cached.length === count &&
+          cached.every(n => typeof n === "number" && Number.isFinite(n) && n >= 0 && n <= 1))
+        return cached as number[];
+    } catch { /* Absent or damaged disposable cache: regenerate from the source. */ }
+    const info = JSON.parse(await command(FFPROBE, ["-v", "error", "-select_streams", "a:0",
+      "-show_entries", "stream=channels", "-of", "json", source.real]));
+    const channels = info.streams?.[0]?.channels;
+    if (!Number.isInteger(channels) || channels < 1 || channels > 32)
+      throw new Error("Waveform requires a supported audio stream with at most 32 channels");
+    const bins = new Array<number>(count).fill(0), frameBytes = channels * 4;
+    let sample = 0, pendingBytes: Buffer = Buffer.alloc(0);
+    await limited(() => new Promise<void>((resolve, reject) => {
+      const child = spawn(FFMPEG, ["-v", "error", "-nostdin", "-threads", "2", "-i", source.real,
+        "-map", "0:a:0", "-vn", "-sn", "-dn", "-filter_threads", "1",
+        "-af", "aresample=8000:async=1:first_pts=0", "-t", String(m.duration),
+        "-c:a", "pcm_f32le", "-f", "f32le", "pipe:1"], {stdio: ["ignore", "pipe", "pipe"]});
+      let error = "", settled = false, timedOut = false, lastData = Date.now();
+      const began = lastData;
+      const timer = setInterval(() => {
+        if (Date.now() - began > 300000 || Date.now() - lastData > 30000) {
+          timedOut = true; child.kill("SIGKILL");
+        }
+      }, 1000);
+      timer.unref();
+      const finish = (failure?: Error) => {
+        if (settled) return; settled = true; clearInterval(timer);
+        if (failure) reject(failure); else resolve();
+      };
+      child.stdout.on("data", (buf: Buffer) => {
+        lastData = Date.now();
+        const bytes = pendingBytes.length ? Buffer.concat([pendingBytes, buf]) : buf;
+        const end = bytes.length - bytes.length % frameBytes;
+        for (let i = 0; i < end; i += frameBytes) {
+          const index = Math.floor(sample++ * count / (m.duration * 8000));
+          if (index >= count) continue;
+          let peak = bins[index];
+          for (let channel = 0; channel < channels; channel++) {
+            const value = Math.abs(bytes.readFloatLE(i + channel * 4));
+            if (Number.isFinite(value)) peak = Math.max(peak, Math.min(1, value));
+          }
+          bins[index] = peak;
+        }
+        pendingBytes = Buffer.from(bytes.subarray(end));
+      });
+      child.stderr.on("data", (bytes: Buffer) => { error = (error + bytes).slice(-2000); });
+      child.once("error", finish);
+      child.once("close", code => finish(timedOut ? new Error("Waveform analysis exceeded its time limit") :
+        code !== 0 ? new Error(`Waveform audio decode failed: ${error}`) :
+        !sample || pendingBytes.length ? new Error("Waveform audio decode returned incomplete samples") : undefined));
+    }));
+    if ((await identity(m.path)).key !== source.key)
+      throw new Error("Media changed during waveform analysis; try again");
+    const temporary = file + `.${randomUUID()}.tmp`;
+    try {
+      await fs.writeFile(temporary, JSON.stringify(bins));
+      await fs.rename(temporary, file);
+    } finally { await fs.rm(temporary, {force: true}); }
     return bins;
   });
 }
+
 export function getJob(id: string) {
   return jobs.get(id);
 }
@@ -361,7 +376,7 @@ export async function inspectFrames(
     try { mediaKeys.push((await identity(media.path)).key); }
     catch { mediaKeys.push(`unavailable:${media.path}`); }
   }
-  const projectKey = hash(JSON.stringify({ renderer: "composed-frame-v4-source-face-tracking", project: snapshot, mediaKeys, width, height }));
+  const projectKey = hash(JSON.stringify({ renderer: "composed-frame-v5-moving-background", project: snapshot, mediaKeys, width, height }));
   await fs.mkdir(cacheDir, { recursive: true });
   const frames: InspectedFrame[] = [];
   for (const requestedTime of times) {
@@ -773,6 +788,7 @@ async function executeExport(
   options: ExportOptions & { losslessAudio?: boolean; frameCount?: number; audioSamples?: number },
   outputDir: string,
   j: Job,
+  context: { timelineStart?: number; backgroundCacheDir?: string } = {},
 ): Promise<void> {
   const p = structuredClone(project),
     o = { ...options };
@@ -829,13 +845,46 @@ async function executeExport(
     let base = "";
     const audio: string[] = [];
     if (video) {
-      args.push(
-        "-f",
-        "lavfi",
-        "-i",
-        `color=c=${color(p.canvas.background)}:s=${w}x${h}:r=${fps}:d=${seconds(expectedFrames / fps)}`,
-      );
-      filters.push(`[${input++}:v]format=rgba[base0]`);
+      if (p.canvas.backgroundPattern === "moving-dots") {
+        const geometry = canvasBackgroundGeometry(p.canvas, 0, w, h);
+        const repeat = canvasBackgroundRepeatSize(p.canvas, geometry);
+        const key = hash(JSON.stringify({ version: MOVING_DOTS.version, canvas: p.canvas, w, h }));
+        const sheet = path.join(context.backgroundCacheDir ?? dir, `background-${key}.bmp`);
+        await unique(sheet, async () => {
+          if (await exists(sheet)) return;
+          const temp = sheet + "." + randomUUID() + ".tmp";
+          try {
+            await fs.writeFile(temp, canvasBackgroundBMP(p.canvas, { ...geometry, width: repeat.width, height: repeat.height }, true));
+            await fs.rename(temp, sheet);
+          } finally { await fs.rm(temp, { force: true }); }
+        });
+        const origin = seconds(context.timelineStart ?? 0);
+        // Translate the smallest exact repeating raster, with bilinear subpixel sampling for slow motion.
+        // The extra row/column of tiles covers both axes at every phase. Planar RGB prevents
+        // chroma-subsampling shifts. Absolute project time survives chunks, ranges and inspection.
+        const phase = `mod(on/${fps}+${origin},${MOVING_DOTS.period})/${MOVING_DOTS.period}`;
+        const x = `${geometry.pitchX}*(1-(${phase}))`;
+        const y = `${geometry.pitchY}*(1-(${phase}))`;
+        args.push("-loop", "1", "-framerate", String(fps), "-i", sheet);
+        filters.push(`[${input++}:v]trim=end_frame=${expectedFrames},setpts=PTS-STARTPTS,format=gbrp,perspective=x0='${x}':y0='${y}':x1='W+${x}':y1='${y}':x2='${x}':y2='H+${y}':x3='W+${x}':y3='H+${y}':eval=frame:interpolation=linear,crop=${repeat.width}:${repeat.height}:0:0:exact=1[background0]`);
+        let backgroundLabel = 'background0', backgroundIndex = 0;
+        let currentWidth = repeat.width, currentHeight = repeat.height;
+        // At most 13 doublings per axis within the existing 8K canvas bound. There is one
+        // decoder and no delayed branch: every stack consumes duplicates of the same frame.
+        while (currentWidth < w || currentHeight < h) {
+          const horizontal = currentWidth < w, nextWidth = horizontal ? Math.min(w, currentWidth * 2) : currentWidth,
+            nextHeight = horizontal ? currentHeight : Math.min(h, currentHeight * 2), next = `background${++backgroundIndex}`;
+          filters.push(`[${backgroundLabel}]split=2[${next}a][${next}b];[${next}a][${next}b]${horizontal ? 'hstack' : 'vstack'}=inputs=2,crop=${nextWidth}:${nextHeight}:0:0:exact=1[${next}]`);
+          backgroundLabel = next; currentWidth = nextWidth; currentHeight = nextHeight;
+        }
+        filters.push(`[${backgroundLabel}]format=rgba[base0]`);
+      } else {
+        args.push(
+          "-f", "lavfi", "-i",
+          `color=c=${color(p.canvas.background)}:s=${w}x${h}:r=${fps}:d=${seconds(expectedFrames / fps)}`,
+        );
+        filters.push(`[${input++}:v]format=rgba[base0]`);
+      }
       base = "base0";
     }
     args.push("-f", "lavfi", "-i", `anullsrc=r=48000:cl=stereo:d=${duration}`);
@@ -1030,17 +1079,24 @@ async function executeExport(
             xexpr = "0.5",
             yexpr = "0.5";
           for (const z of zooms) {
-            const zs = z.start - c.start,
-              ze = zs + z.duration,
+            const timing = zoomTiming(z);
+            const zs = cleanTime(z.start - c.start),
+              ze = cleanTime(zs + z.duration),
               scale = clamp(z.scale, 1, 8),
-              ramp = Math.max(0.01, Math.min(0.3, z.duration / 3));
+              ramp = timing.ramp,
+              originalStart = cleanTime(zs - timing.offset),
+              originalEnd = cleanTime(originalStart + timing.duration);
             const amount =
               z.easing === "smooth"
-                ? `1+${scale - 1}*max(0,min(1,min((it-${zs})/${ramp},(${ze}-it)/${ramp})))`
+                ? `1+${scale - 1}*max(0,min(1,min((it-(${originalStart}))/${ramp},(${originalEnd}-it)/${ramp})))`
                 : String(scale);
-            zexpr = `if(between(it,${zs},${ze}),${amount},${zexpr})`;
-            xexpr = `if(between(it,${zs},${ze}),${clamp(z.x, 0, 1)},${xexpr})`;
-            yexpr = `if(between(it,${zs},${ze}),${clamp(z.y, 0, 1)},${yexpr})`;
+            const active = `gte(it,${zs})*lt(it,${ze})`;
+            // Equivalent source-time arithmetic can differ by one floating-point bit
+            // after a split. Canonicalize before zoompan's integer crop conversion.
+            const stableAmount = `floor((${amount})*1000000000+0.5)/1000000000`;
+            zexpr = `if(${active},${stableAmount},${zexpr})`;
+            xexpr = `if(${active},${clamp(z.x, 0, 1)},${xexpr})`;
+            yexpr = `if(${active},${clamp(z.y, 0, 1)},${yexpr})`;
           }
           chain += `,zoompan=z='${zexpr}':x='max(0,min(iw-iw/zoom,iw*(${xexpr})-iw/zoom/2))':y='max(0,min(ih-ih/zoom,ih*(${yexpr})-ih/zoom/2))':d=1:s=${tw}x${th}:fps=${fps},format=rgba`;
         }
@@ -1497,6 +1553,7 @@ export function startExport(
 ): Job {
   const p = structuredClone(project),
     o = structuredClone(options);
+  let timelineStart = 0;
   return enqueue("export", async (j) => {
     if (o.range) {
       const { start, end } = o.range,
@@ -1512,6 +1569,7 @@ export function startExport(
           "Export range must satisfy 0 <= start < end <= project duration",
         );
       Object.assign(p, sliceProject(p, start, end));
+      timelineStart = start;
       delete o.range;
     }
     const duration = projectDuration(p);
@@ -1527,7 +1585,7 @@ export function startExport(
         graphicCount(p) <= 40 &&
         p.cursor.points.length <= 512)
     ) {
-      await executeExport(p, o, outputDir, j);
+      await executeExport(p, o, outputDir, j, { timelineStart });
       return;
     }
     await fs.mkdir(outputDir, { recursive: true });
@@ -1570,7 +1628,8 @@ export function startExport(
         const childJob = { ...j, id: j.id, progress: 0 };
         const dir = path.join(root, String(files.length));
         await executeExport(q, { ...o, losslessAudio: true, frameCount: endFrame - startFrame,
-          audioSamples: Math.round(end * 48000) - Math.round(start * 48000) }, dir, childJob);
+          audioSamples: Math.round(end * 48000) - Math.round(start * 48000) }, dir, childJob,
+          { timelineStart: timelineStart + start, backgroundCacheDir: root });
         if (stopped(getJob(j.id))) throw new Error("Cancelled");
         files.push(childJob.outputPath!);
         chunkFrames.push(endFrame - startFrame);

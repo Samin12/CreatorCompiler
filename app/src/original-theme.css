@@ -55,3 +55,17 @@ body,.app-shell{background:var(--background);color:var(--foreground)}h1,h2,h3{le
 .settings-body .inspector-section{padding-bottom:16px;margin-bottom:16px}.settings-body .inspector-section h3{font-size:12px;line-height:16px;margin-bottom:12px}
 .settings-body .status-row b,.settings-body .shortcut-row{font-size:12px;line-height:16px}
 @media(max-width:760px){.modal>header{padding:16px}.modal-content{padding:16px}.settings-layout{gap:16px}.settings-layout>nav{width:130px;padding-right:8px}}
+
+/* Leave room for macOS window buttons, then separate brand, tabs and actions. */
+.titlebar{height:48px;min-height:48px}
+.desktop .titlebar{height:48px;min-height:48px;padding-left:104px;padding-right:12px}
+.titlebar .brand{height:48px;padding-right:24px;gap:12px}
+.titlebar .brand-chevron{margin-left:10px}
+.titlebar .document-tab{height:48px;min-width:150px;padding:0 18px;gap:20px}
+.titlebar .new-document-button{margin:0 12px;width:38px;height:38px}
+.titlebar-actions{gap:12px}
+.project-header{height:54px;min-height:54px;padding:0 16px}
+.project-header .editor-quick-actions{gap:16px;padding-left:0}
+.project-header .editor-quick-actions .button{padding:8px 12px;gap:9px;font-size:12px}
+.project-header-controls{gap:9px}
+@media(max-width:900px){.titlebar .brand{padding-right:16px}.titlebar .document-tab{min-width:115px;padding:0 12px;gap:12px}.project-header .editor-quick-actions{gap:8px}.project-header .editor-quick-actions .button{padding:7px 8px;gap:6px}.project-header-controls{gap:4px}}
