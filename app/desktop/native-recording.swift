@@ -40,16 +40,13 @@ final class NativeRecording: NSObject, SCStreamOutput, SCStreamDelegate, @unchec
     var videoDrainScheduled = false, peakBufferedVideo = 0, lateVideoFrames = 0
     var videoFailure: String?
     var maxBufferedVideo = 16, maxPoolVideo = 24
-    var selfTestFrameMarkers = false, selfTestStats = false
+    var selfTestFrameMarkers = false
     var lastEncodedVideo = CMTime.invalid
     let previewQueue = DispatchQueue(label: "sceneforge.native.preview", qos: .utility)
     // Built on first preview, on previewQueue only: it is not on the start path.
     lazy var ci = CIContext(options: [.cacheIntermediates: false])
     var stream: SCStream?
     var timer: DispatchSourceTimer?
-    // Sampling ticks are kept away from the measured arrival phase of complete
-    // frames, so a tick never races the frame for its own slot.
-    var arrivalX = 0.0, arrivalY = 0.0, arrivalSamples = 0, ticksSinceLock = 0, timerRelocks = 0
     var previewEnabled = true
     var captureBounds = CGRect.zero, capturedWindowID: CGWindowID?, capturedWindowPID: pid_t?
     var lastBoundsPoll = -Double.infinity
@@ -201,7 +198,7 @@ final class NativeRecording: NSObject, SCStreamOutput, SCStreamDelegate, @unchec
                 // of the origin grid (encoder start above may have taken a while).
                 let position = seconds(elapsed())*Double(fps); var delay = 0.5-(position-floor(position)); if delay <= 0 { delay += 1 }
                 let t = DispatchSource.makeTimerSource(queue: queue); t.schedule(deadline: .now()+delay/Double(fps), repeating: 1/Double(fps), leeway: .milliseconds(1)); t.setEventHandler { [weak self] in self?.tick() }; timer = t; t.resume()
-            } else { noteArrival() }
+            }
         } else if type == .audio {
             guard origin != nil, pauseAt == nil, audioFile != nil else { return }
             let original = CMSampleBufferGetPresentationTimeStamp(sample)
@@ -278,7 +275,6 @@ final class NativeRecording: NSObject, SCStreamOutput, SCStreamDelegate, @unchec
             }
             enqueueVideo(image,at:pts); lastVideo=pts
         }
-        relockTimer()
         if previewEnabled && seconds(time)-lastPreview >= 0.2 && !previewBusy {
             previewBusy = true; lastPreview = seconds(time); previewCounter += 1
             let index = previewCounter, file = previewPath
@@ -293,31 +289,9 @@ final class NativeRecording: NSObject, SCStreamOutput, SCStreamDelegate, @unchec
             }
         }
     }
-    // Arrival phase is measured against the origin on the host clock, also
-    // while paused, and mapped onto the elapsed slot grid that tick() samples
-    // on. Ticks sit mid-way in the wider gap between the slot boundary and that
-    // phase, so they neither race the frame for their slot nor cross a boundary
-    // on timer jitter. Irregular sources (static or variable-rate content)
-    // never reach the concentration needed to move the timer.
-    func noteArrival() {
-        guard let origin else { return }
-        let position = seconds(CMTimeSubtract(hostTime(), origin))*Double(fps), angle = (position-floor(position))*2*Double.pi
-        arrivalX = arrivalX*0.8+cos(angle)*0.2; arrivalY = arrivalY*0.8+sin(angle)*0.2; arrivalSamples += 1
-    }
-    func relockTimer() {
-        ticksSinceLock += 1
-        guard let timer, arrivalSamples >= 8, ticksSinceLock >= Int(fps)/2, arrivalX*arrivalX+arrivalY*arrivalY > 0.25 else { return }
-        let position = seconds(elapsed())*Double(fps), phase = position-floor(position)
-        var arrival = atan2(arrivalY, arrivalX)/(2*Double.pi)-seconds(pauseOffset)*Double(fps); arrival -= floor(arrival)
-        let target = arrival < 0.5 ? (arrival+1)/2 : arrival/2, distance = abs(phase-target)
-        guard min(distance, 1-distance) > 0.1 else { return }
-        // The next tick lands within one frame, so no slot is skipped.
-        var delay = target-phase; delay -= floor(delay); if delay == 0 { delay = 1 }
-        timer.schedule(deadline: .now()+delay/Double(fps), repeating: 1/Double(fps), leeway: .milliseconds(1)); ticksSinceLock = 0; timerRelocks += 1
-    }
     func setPreview(_ enabled: Bool) { queue.async { self.previewEnabled = enabled; if enabled { self.lastPreview = -Double.infinity } } }
     func pause() { queue.async { guard self.started, self.pauseAt == nil, !self.stopping else { return }; self.tick(); self.pauseAt = hostTime(); emit(["type":"paused","duration":seconds(self.elapsed()),"transitionAtMs":Date().timeIntervalSince1970*1000]) } }
-    func resume() { queue.async { guard let paused = self.pauseAt, !self.stopping else { return }; let now = hostTime(); self.pauseOffset = CMTimeAdd(self.pauseOffset, CMTimeSubtract(now, paused)); self.resumedAt = now; self.pauseAt = nil; self.ticksSinceLock = Int(self.fps); emit(["type":"resumed","duration":seconds(self.elapsed()),"transitionAtMs":Date().timeIntervalSince1970*1000]) } }
+    func resume() { queue.async { guard let paused = self.pauseAt, !self.stopping else { return }; let now = hostTime(); self.pauseOffset = CMTimeAdd(self.pauseOffset, CMTimeSubtract(now, paused)); self.resumedAt = now; self.pauseAt = nil; emit(["type":"resumed","duration":seconds(self.elapsed()),"transitionAtMs":Date().timeIntervalSince1970*1000]) } }
     func stop() async {
         let duration: Double = await withCheckedContinuation { continuation in queue.async {
             if self.stopping { continuation.resume(returning: -1); return }
@@ -355,7 +329,6 @@ final class NativeRecording: NSObject, SCStreamOutput, SCStreamDelegate, @unchec
         if captureAudio && audioBuffers == 0 { result["warning"] = "No system-audio samples were received; no system audio file was imported." }
         if droppedVideo+lateVideoFrames > 0 { result["warning"] = [result["warning"] as? String,"Recording was under load: \(droppedVideo) video frames exceeded the buffer and \(lateVideoFrames) frame intervals were delayed. Review the take before using it."].compactMap{$0}.joined(separator:" ") }
         if let error = writer?.error { result["error"] = error.localizedDescription };if let videoFailure {result["error"]=videoFailure};if let audioFailure {result["error"]=audioFailure}
-        if selfTestStats { result["timerRelocks"] = timerRelocks }
         emit(result)
         exit(result["error"] == nil ? 0 : 1)
     }
@@ -370,7 +343,7 @@ if let at = CommandLine.arguments.firstIndex(of: "--self-test"), CommandLine.arg
     do {
         try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
         recorder.width=CommandLine.arguments.contains("--self-test-hd") ? 1920 : 320
-        recorder.height=CommandLine.arguments.contains("--self-test-hd") ? 1080 : 180; recorder.captureAudio=true; recorder.selfTestStats=true
+        recorder.height=CommandLine.arguments.contains("--self-test-hd") ? 1080 : 180; recorder.captureAudio=true
         // A moving source delivers numbered frames on its own clock, as
         // ScreenCaptureKit does, to measure sampling cadence (duplicates/skips).
         var sourceFPS=0.0
