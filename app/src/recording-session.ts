@@ -33,6 +33,15 @@ export function nativeRecordingOutputs(output:{videoPath?:string;audioPath?:stri
 export function nativeRecordingOutputErrors(output:{videoPath?:string;audioPath?:string},recordVideo:boolean,systemAudio:boolean):string[]{
  return [...(recordVideo&&!output.videoPath?['Native capture did not return the selected screen video.']:[]),...(systemAudio&&!output.audioPath?['Native capture did not return system sound.']:[])];
 }
+/** Plain-language note for a saved native take, or '' when nothing worth mentioning happened.
+ * A few late frame slots are normal; the creator only hears about stutter they could notice. */
+export function nativeRecordingNote(output:{stoppedEarly?:boolean;videoFrames?:number;lateVideoFrames?:number;droppedVideo?:number}):string{
+ const notes:string[]=[];
+ if(output.stoppedEarly)notes.push('macOS ended the screen recording early. Everything up to that point was saved.');
+ const missed=(output.lateVideoFrames??0)+(output.droppedVideo??0),slots=(output.videoFrames??0)+missed;
+ if(slots>0&&missed/slots>.05)notes.push('Your Mac was busy during this take, so the screen video may stutter in places. Play it back before you use it.');
+ return notes.join(' ');
+}
 /** Serializes Pause/Resume, while Stop can immediately prevent further toggles. */
 export class RecordingTransitionGate {
  private pending:Promise<void>|null=null;

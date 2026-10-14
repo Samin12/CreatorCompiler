@@ -61,6 +61,7 @@ export interface DesktopNativeRecordingResult {
  id: string; status: string; excludesSceneForge: boolean; startedAtMs: number;
  width?: number; height?: number; duration?: number; transitionAtMs?: number;
  videoPath?: string; audioPath?: string; droppedVideo?: number; droppedAudio?: number; warning?: string;
+ videoFrames?: number; lateVideoFrames?: number; stoppedEarly?: boolean;
 }
 export interface DesktopNativeRecordingEvent {
  id: string; type: 'started'|'paused'|'resumed'|'stopped'|'preview'|'error';

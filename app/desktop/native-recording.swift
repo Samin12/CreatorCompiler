@@ -39,10 +39,16 @@ final class NativeRecording: NSObject, SCStreamOutput, SCStreamDelegate, @unchec
     var pendingVideo: [(CVPixelBuffer, CMTime)] = []
     var videoDrainScheduled = false, peakBufferedVideo = 0, lateVideoFrames = 0
     var videoFailure: String?
+    var systemStopReason: String?
+    // Held until the helper exits after stop: keeps App Nap and timer coalescing from skipping frame slots.
+    var activity: NSObjectProtocol?
     var maxBufferedVideo = 16, maxPoolVideo = 24
     var selfTestFrameMarkers = false
     var lastEncodedVideo = CMTime.invalid
     let previewQueue = DispatchQueue(label: "sceneforge.native.preview", qos: .utility)
+    // System-audio conversion and disk writes run here, never on `queue`: a slow write
+    // there delays the frame timer and freezes the screen video.
+    let audioQueue = DispatchQueue(label: "sceneforge.native.audio", qos: .userInitiated)
     // Built on first preview, on previewQueue only: it is not on the start path.
     lazy var ci = CIContext(options: [.cacheIntermediates: false])
     var stream: SCStream?
@@ -53,6 +59,9 @@ final class NativeRecording: NSObject, SCStreamOutput, SCStreamDelegate, @unchec
     var writer: AVAssetWriter?, videoInput: AVAssetWriterInput?, adaptor: AVAssetWriterInputPixelBufferAdaptor?
     var audioFile: FileHandle?, audioFrames: Int64 = 0, audioFailure: String?
     var latest: CVPixelBuffer?
+    // Bumped for every new source image; a tick on an unchanged screen re-sends the
+    // previous copy instead of copying the whole frame again.
+    var latestSequence = 0, copiedSequence = -1, lastCopy: CVPixelBuffer?
     var origin: CMTime?, pauseAt: CMTime?, pauseOffset = CMTime.zero
     var lastVideo = CMTime.invalid, lastAudio = CMTime.invalid
     var resumedAt = CMTime.invalid
@@ -84,6 +93,7 @@ final class NativeRecording: NSObject, SCStreamOutput, SCStreamDelegate, @unchec
 
     func enqueueVideo(_ image: CVPixelBuffer, at pts: CMTime) {
         videoLock.lock(); let available = pendingVideo.count < maxBufferedVideo && videoFailure == nil; videoLock.unlock()
+        if available, copiedSequence == latestSequence, let lastCopy { schedulePending(lastCopy, at: pts); return }
         guard available, let copyPool, CVPixelBufferGetWidth(image)==width, CVPixelBufferGetHeight(image)==height, CVPixelBufferGetPixelFormatType(image)==kCVPixelFormatType_32BGRA else { droppedVideo += 1; return }
         var copied: CVPixelBuffer?
         let auxiliary = [kCVPixelBufferPoolAllocationThresholdKey: maxPoolVideo] as CFDictionary
@@ -97,7 +107,11 @@ final class NativeRecording: NSObject, SCStreamOutput, SCStreamDelegate, @unchec
         }
         CVPixelBufferUnlockBaseAddress(copied,[]); CVPixelBufferUnlockBaseAddress(image,.readOnly)
         guard copiedPixels else { droppedVideo += 1; return }
-        videoLock.lock(); pendingVideo.append((copied,pts)); peakBufferedVideo=max(peakBufferedVideo,pendingVideo.count); let schedule = !videoDrainScheduled; videoDrainScheduled=true; videoLock.unlock()
+        lastCopy = copied; copiedSequence = latestSequence
+        schedulePending(copied, at: pts)
+    }
+    func schedulePending(_ frame: CVPixelBuffer, at pts: CMTime) {
+        videoLock.lock(); pendingVideo.append((frame,pts)); peakBufferedVideo=max(peakBufferedVideo,pendingVideo.count); let schedule = !videoDrainScheduled; videoDrainScheduled=true; videoLock.unlock()
         if schedule { videoQueue.async { self.drainVideo() } }
     }
 
@@ -121,6 +135,7 @@ final class NativeRecording: NSObject, SCStreamOutput, SCStreamDelegate, @unchec
 
     func start(_ config: [String: Any]) async throws {
         guard stream == nil else { throw failure("A capture session is already running.") }
+        activity = ProcessInfo.processInfo.beginActivity(options: [.userInitiated, .latencyCritical], reason: "Screen recording")
         guard let directory = config["directory"] as? String, directory.hasPrefix("/") else { throw failure("An absolute output directory is required.") }
         try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         videoPath = directory + "/screen.mp4"; audioPath = directory + "/system.wav"; previewPath = directory + "/preview.jpg"
@@ -165,7 +180,7 @@ final class NativeRecording: NSObject, SCStreamOutput, SCStreamDelegate, @unchec
         options.scalesToFit = true; options.preservesAspectRatio = true
         options.capturesAudio = captureAudio; options.excludesCurrentProcessAudio = true
         options.sampleRate = 48000; options.channelCount = 2
-        if recordVideo { try prepareVideoWriter() }
+        if recordVideo { try prepareVideoWriter(); if let writer, !writer.startWriting() { throw failure(writer.error?.localizedDescription ?? "Video encoder could not start.") } }
         if captureAudio {
             try beginAudio()
         }
@@ -177,7 +192,10 @@ final class NativeRecording: NSObject, SCStreamOutput, SCStreamDelegate, @unchec
         // `started` is emitted with the first complete frame, not merely after
         // permission/stream setup. Browser tracks can align to this wall time.
     }
-    func stream(_ stream: SCStream, didStopWithError error: Error) { emit(["type": "error", "message": error.localizedDescription]); Task { await stop() } }
+    // macOS can end a stream on its own (sharing indicator, display change, lock).
+    // Finalize what was captured instead of reporting a fatal error, which would
+    // get the helper killed before the MP4 index is written.
+    func stream(_ stream: SCStream, didStopWithError error: Error) { systemStopReason = error.localizedDescription; Task { await stop() } }
     func stream(_ stream: SCStream, didOutputSampleBuffer sample: CMSampleBuffer, of type: SCStreamOutputType) {
         accept(sample, type: type)
     }
@@ -186,11 +204,11 @@ final class NativeRecording: NSObject, SCStreamOutput, SCStreamDelegate, @unchec
         if type == .screen {
             guard let image = sample.imageBuffer else { return }
             if let attachments = CMSampleBufferGetSampleAttachmentsArray(sample, createIfNecessary: false) as? [[SCStreamFrameInfo: Any]], let status = attachments.first?[.status] as? Int, status != SCFrameStatus.complete.rawValue { return }
-            latest = image
+            latest = image; latestSequence += 1
             if origin == nil {
                 origin = hostTime()
                 let originEpochMs = Date().timeIntervalSince1970*1000
-                if let writer, !writer.startWriting() { emit(["type":"error","message":writer.error?.localizedDescription ?? "Video encoder could not start."]); return }; writer?.startSession(atSourceTime: .zero)
+                writer?.startSession(atSourceTime: .zero)
                 started = true
                 emit(["type":"started","startedAtMs":originEpochMs,"width":width,"height":height,"excludesSceneForge":true,"captureBounds":captureBoundsJSON(captureBounds),"previewControl":true])
                 tick()
@@ -200,13 +218,17 @@ final class NativeRecording: NSObject, SCStreamOutput, SCStreamDelegate, @unchec
                 let t = DispatchSource.makeTimerSource(queue: queue); t.schedule(deadline: .now()+delay/Double(fps), repeating: 1/Double(fps), leeway: .milliseconds(1)); t.setEventHandler { [weak self] in self?.tick() }; timer = t; t.resume()
             }
         } else if type == .audio {
-            guard origin != nil, pauseAt == nil, audioFile != nil else { return }
+            guard origin != nil, pauseAt == nil, captureAudio else { return }
             let original = CMSampleBufferGetPresentationTimeStamp(sample)
             if resumedAt.isValid && original < resumedAt { return }
             let pts = CMTimeSubtract(CMTimeSubtract(original, origin!), pauseOffset)
             guard !lastAudio.isValid || pts > lastAudio else { return }
-            do { try appendAudio(sample, pts: pts); lastAudio = pts; audioBuffers += 1 }
-            catch { audioFailure=error.localizedDescription; emit(["type":"error","message":error.localizedDescription]) }
+            lastAudio = pts; let limit = Int64((seconds(elapsed())+2)*48000)
+            audioQueue.async { [self] in
+                guard audioFailure == nil else { return }
+                do { try appendAudio(sample, pts: pts, limit: limit); audioBuffers += 1 }
+                catch { audioFailure=error.localizedDescription; emit(["type":"error","message":error.localizedDescription]) }
+            }
         }
     }
     func beginAudio() throws {
@@ -217,11 +239,11 @@ final class NativeRecording: NSObject, SCStreamOutput, SCStreamDelegate, @unchec
         guard target <= 1_073_741_800 else { throw failure("System audio reached the WAV file size limit.") }
         while audioFrames < target {let count=Int(min(16384,target-audioFrames));try audioFile!.write(contentsOf:Data(count:count*4));audioFrames+=Int64(count)}
     }
-    func appendAudio(_ sample:CMSampleBuffer,pts:CMTime) throws {
+    func appendAudio(_ sample:CMSampleBuffer,pts:CMTime,limit:Int64) throws {
         guard let description=sample.formatDescription, let asbd=CMAudioFormatDescriptionGetStreamBasicDescription(description)?.pointee,
               asbd.mFormatID == kAudioFormatLinearPCM, abs(asbd.mSampleRate-48000)<1, asbd.mChannelsPerFrame==2 else { throw failure("ScreenCaptureKit returned an unsupported system-audio format.") }
         let frames=CMSampleBufferGetNumSamples(sample),position=Int64((seconds(pts)*48000).rounded()),skip=Int(max(0,audioFrames-position))
-        guard position >= -48000, position <= Int64((seconds(elapsed())+2)*48000) else {throw failure("System audio timestamps do not match the capture clock.")}
+        guard position >= -48000, position <= limit else {throw failure("System audio timestamps do not match the capture clock.")}
         if skip>=frames{return};try fillAudio(until:max(0,position))
         var needed=0;var retained:CMBlockBuffer?
         CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer(sample,bufferListSizeNeededOut:&needed,bufferListOut:nil,bufferListSize:0,blockBufferAllocator:kCFAllocatorDefault,blockBufferMemoryAllocator:kCFAllocatorDefault,flags:0,blockBufferOut:nil)
@@ -266,6 +288,7 @@ final class NativeRecording: NSObject, SCStreamOutput, SCStreamDelegate, @unchec
         if recordVideo && (!lastVideo.isValid || pts > lastVideo) {
             if lastVideo.isValid { lateVideoFrames += max(0,Int(frame-lastVideo.value)-1) }
             if selfTestFrameMarkers {
+                latestSequence += 1
                 // A changing diagnostic source reveals accidental aliasing of
                 // queued pixels. Real capture never mutates source surfaces.
                 let level=UInt32(32+Int(frame%16)*12),pixel=UInt32(0xff000000)|(level<<16)|(level<<8)|level
@@ -319,7 +342,7 @@ final class NativeRecording: NSObject, SCStreamOutput, SCStreamDelegate, @unchec
             if self.started {
                 self.writer?.endSession(atSourceTime: end); self.videoInput?.markAsFinished()
             } else { self.writer?.cancelWriting() }
-            do {try self.finishAudio(duration:duration)} catch {self.audioFailure=error.localizedDescription}
+            self.audioQueue.sync { do {try self.finishAudio(duration:duration)} catch {self.audioFailure=error.localizedDescription} }
             continuation.resume()
         } }
         if let writer, writer.status == .writing { await writer.finishWriting() }
@@ -328,6 +351,7 @@ final class NativeRecording: NSObject, SCStreamOutput, SCStreamDelegate, @unchec
         if captureAudio, audioFailure == nil, audioBuffers > 0 { result["audioPath"] = audioPath }
         if captureAudio && audioBuffers == 0 { result["warning"] = "No system-audio samples were received; no system audio file was imported." }
         if droppedVideo+lateVideoFrames > 0 { result["warning"] = [result["warning"] as? String,"Recording was under load: \(droppedVideo) video frames exceeded the buffer and \(lateVideoFrames) frame intervals were delayed. Review the take before using it."].compactMap{$0}.joined(separator:" ") }
+        if let systemStopReason { result["stoppedEarly"] = true; result["warning"] = ["macOS stopped the screen capture early (\(systemStopReason)). Footage up to that point was saved.",result["warning"] as? String].compactMap{$0}.joined(separator:" ") }
         if let error = writer?.error { result["error"] = error.localizedDescription };if let videoFailure {result["error"]=videoFailure};if let audioFailure {result["error"]=audioFailure}
         emit(result)
         exit(result["error"] == nil ? 0 : 1)

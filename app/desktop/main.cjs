@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, shell, desktopCapturer, screen, session, utilityProcess, Menu, globalShortcut, systemPreferences, nativeTheme } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, desktopCapturer, screen, session, utilityProcess, Menu, globalShortcut, systemPreferences, nativeTheme, powerSaveBlocker } = require('electron');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
 const fs = require('node:fs');
@@ -10,6 +10,12 @@ const {createCaptureBorder}=require('./capture-border.cjs');
 const {createMediaPermissionRequests}=require('./media-permissions.cjs');
 let mainWindow, service, captureManager, recordingHud, nativeRecording, captureBorder, ownService = false, quitting = false;
 const PORT=4174, base=`http://127.0.0.1:${PORT}`;
+// The editor window hides while recording; without this macOS may App Nap the app and stall capture.
+let recordingBlocker=null;
+function keepAwakeWhileRecording(type){
+ if(type==='started'&&recordingBlocker===null)recordingBlocker=powerSaveBlocker.start('prevent-app-suspension');
+ else if((type==='stopped'||type==='error')&&recordingBlocker!==null){powerSaveBlocker.stop(recordingBlocker);recordingBlocker=null;}
+}
 const projectRoot=path.resolve(__dirname,'..');
 const emptyShortcutContext=()=>({workspace:'home',editable:false,timelineFocused:false,availableActions:[],bindings:{}});
 let shortcutContext=emptyShortcutContext(),lastShortcutStatus='',lastMenuSignature='';
@@ -158,7 +164,7 @@ app.whenReady().then(async()=>{
  ipcMain.handle('cancel-capture-selection',(e,token)=>captureManager.cancel(e,token));
  recordingHud=createRecordingHud({BrowserWindow,ipcMain,screen,getMainWindow:()=>mainWindow,verifyMain:verifyDesktopSender,onMainVisibility:publishMainVisibility});
  captureBorder=createCaptureBorder({BrowserWindow});
- nativeRecording=createNativeRecordingManager({ipcMain,getMainWindow:()=>mainWindow,origin:base,dataDir:path.join(app.getPath('userData'),'studio'),onState:event=>captureBorder.update(event),onPrepare:event=>{if(event.recordVideo)captureBorder.prewarm();}});
+ nativeRecording=createNativeRecordingManager({ipcMain,getMainWindow:()=>mainWindow,origin:base,dataDir:path.join(app.getPath('userData'),'studio'),onState:event=>{captureBorder.update(event);keepAwakeWhileRecording(event.type);},onPrepare:event=>{if(event.recordVideo)captureBorder.prewarm();}});
  const verify=(e)=>{if(!trusted(e.senderFrame.url))throw new Error('Untrusted window');};
  ipcMain.handle('shortcut-context',(e,value)=>{verify(e);if(e.sender!==mainWindow.webContents)throw new Error('Untrusted shortcut sender');return setShortcutContext(value);});
  ipcMain.handle('media-permissions',e=>{verifyDesktopSender(e);return getMediaPermissions();});
