@@ -1,10 +1,10 @@
-import {useEffect,useRef,useState} from 'react';
+import {useEffect,useState} from 'react';
 import {Clapperboard,Structured,QuickRecord,Copy,FolderOpen,LoaderCircle,Plus,Search,Trash2,Video} from './Icons';
-import type {Media,Project,ProjectSummary} from '../shared/types';
+import type {Media,ProjectSummary} from '../shared/types';
 import {api,timecode} from './api';
 
-const thumbnails=new Map<string,string>();
-function ProjectThumbnail({project}:{project:ProjectSummary}){const mediaId=(project as ProjectSummary&{thumbnailMediaId?:string}).thumbnailMediaId,initial=mediaId?`/api/media/${mediaId}/thumbnail`:thumbnails.get(project.id);const [src,setSrc]=useState(initial),ref=useRef<HTMLSpanElement>(null);useEffect(()=>{if(initial){setSrc(initial);return;}const node=ref.current;if(!node)return;let active=true,started=false;const observer=new IntersectionObserver(entries=>{if(started||!entries.some(entry=>entry.isIntersecting))return;started=true;observer.disconnect();void api<Project>(`/projects/${project.id}`).then(p=>{const first=p.clips.find(c=>c.track==='screen')??p.clips.find(c=>c.track==='camera')??p.clips.find(c=>c.track==='overlay');if(first){const url=`/api/media/${first.mediaId}/thumbnail`;thumbnails.set(project.id,url);if(thumbnails.size>100)thumbnails.delete(thumbnails.keys().next().value!);if(active)setSrc(url);}}).catch(()=>{});},{rootMargin:'120px'});observer.observe(node);return()=>{active=false;observer.disconnect();};},[project.id,initial]);return <span className="project-thumbnail-content" ref={ref}>{src?<img src={src} alt="" loading="lazy"/>:<span className="project-thumbnail-empty"><Clapperboard size={24}/></span>}</span>;}
+/** The project summary already names the first visual clip's media; projects without one show the placeholder. */
+function ProjectThumbnail({project}:{project:ProjectSummary}){const src=project.thumbnailMediaId?`/api/media/${project.thumbnailMediaId}/thumbnail`:undefined;return <span className="project-thumbnail-content">{src?<img src={src} alt="" loading="lazy"/>:<span className="project-thumbnail-empty"><Clapperboard size={24}/></span>}</span>;}
 export function Home({projects,loading,onNew,onQuick,onOpen,onImport,onDuplicate,onDelete,onRecovered,onError,onTrash}:{projects:ProjectSummary[];loading:boolean;onNew:()=>void;onQuick:()=>void;onOpen:(id:string)=>void;onImport:()=>void;onDuplicate:(id:string)=>void;onDelete:(id:string)=>void;onRecovered:(media:Media)=>Promise<void>;onError:(message:string)=>void;onTrash:()=>void}){
  const [search,setSearch]=useState(''),[recoverable,setRecoverable]=useState<Array<{id:string;name:string;chunks:number}>>([]),[recovering,setRecovering]=useState('');
  useEffect(()=>{api<typeof recoverable>('/recordings/recovery').then(setRecoverable).catch(()=>{});},[]);
