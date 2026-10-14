@@ -44,7 +44,7 @@ test('capture authorization is owner-bound, one-use, expires, and cancellation l
  store.arm({ sourceId: 'screen:3' }, owner); store.cancel(); assert.equal(store.hasAttempt(owner), true); assert.equal(store.consume(owner), null);
 });
 
-function setup(options:{inventoryTimeoutMs?:number}={}) {
+function setup(options:{inventoryTimeoutMs?:number;now?:()=>number}={}) {
  const handlers = new Map<string, (...args: any[]) => any>(), windows: any[] = [], calls: any[] = [];
  const mainFrame = { url: base + '/' };
  const main = { isDestroyed: () => false, webContents: { mainFrame } };
@@ -56,7 +56,8 @@ function setup(options:{inventoryTimeoutMs?:number}={}) {
   constructor(options: any) { super(); this.options = options; windows.push(this); }
   isDestroyed() { return this.dead; }
   destroy() { this.dead = true; this.emit('closed'); }
-  setMenu() {} setAlwaysOnTop() {} setVisibleOnAllWorkspaces() {} focus() {}
+  workspaces: any[] = [];
+  setMenu() {} setAlwaysOnTop() {} setVisibleOnAllWorkspaces(...args: any[]) { this.workspaces = args; } focus() {}
   setBounds(value: any) { this.bounds = value; } getContentBounds() { return this.bounds; } show() { this.visible = true; }
   async loadURL(url: string) { this.webContents.mainFrame.url = url; this.emit('ready-to-show'); }
  }
@@ -197,4 +198,24 @@ test('reset settles a pending source selection without needing native enumeratio
 });
 test('initial undetermined permission enumeration has no arbitrary deadline but can be cancelled',async()=>{
  const h=setup({inventoryTimeoutMs:10});try{h.state.screenStatus='not-determined';h.state.beforeSources=()=>new Promise(()=>{});let settled=false;const pending=h.manager.choose(h.event,{sourceId:'window:1:0',mode:'window'}).finally(()=>{settled=true;});await new Promise(resolve=>setTimeout(resolve,30));assert.equal(settled,false);h.manager.reset();assert.equal(await within(pending),null);}finally{h.manager.dispose();}
+});
+
+test('explicit display and window choices enumerate once, and capture enumerates only the selected kind',async()=>{
+ const h=setup();try{
+  await h.manager.choose(h.event,{sourceId:'screen:8:0',mode:'display'});assert.equal(h.calls.length,1);assert.equal((await h.response()).video.id,'screen:8:0');assert.deepEqual(h.calls[1].types,['screen']);
+  await h.manager.choose(h.event,{sourceId:'window:3:0',mode:'window'});assert.equal(h.calls.length,3);assert.equal((await h.response()).video.id,'window:3:0');assert.deepEqual(h.calls[3].types,['window']);
+  const {token,...saved}=await h.manager.choose(h.event,{sourceId:'window:4:0',mode:'window'});await h.manager.restore(h.event,saved);assert.deepEqual(h.calls.at(-1).types,['window']);
+ }finally{h.manager.dispose();}
+});
+test('region overlay opens from a just-listed inventory, then re-validates; stale or display-changed lists are not reused',async()=>{
+ let clock=1000;const h=setup({now:()=>clock});try{
+  await h.manager.list(h.event);let selecting=h.manager.choose(h.event,{sourceId:'screen:8:0',mode:'region'});await tick();assert.equal(h.calls.length,1);assert.equal(h.windows.length,1);
+  h.finish({x:.1,y:.1,width:.5,height:.5});assert.equal((await selecting).crop.normalized.width,.5);assert.equal(h.calls.length,2);
+  await h.manager.list(h.event);selecting=h.manager.choose(h.event,{sourceId:'screen:8:0',mode:'region'});await tick();h.state.sources=h.state.sources.filter(source=>source.id!=='screen:8:0');h.finish({x:0,y:0,width:1,height:1});await assert.rejects(selecting,/closed before capture/);
+  h.state.sources=[{id:'screen:8:0',name:'Left Retina',display_id:'8'}];await h.manager.list(h.event);clock+=10001;const calls=h.calls.length;selecting=h.manager.choose(h.event,{sourceId:'screen:8:0',mode:'region'});await tick();assert.equal(h.calls.length,calls+1);h.finish(null);assert.equal(await selecting,null);
+  await h.manager.list(h.event);h.screen.emit('display-metrics-changed');const before=h.calls.length;selecting=h.manager.choose(h.event,{sourceId:'screen:8:0',mode:'region'});await tick();assert.equal(h.calls.length,before+1);h.finish(null);assert.equal(await selecting,null);
+ }finally{h.manager.dispose();}
+});
+test('region overlay is a panel that joins full-screen Spaces without a Dock transform',async()=>{
+ const h=setup();try{const selecting=h.manager.choose(h.event,{sourceId:'screen:8:0',mode:'region'});await tick();const overlay=h.windows[0];assert.equal(overlay.options.type,'panel');assert.deepEqual(overlay.workspaces,[true,{visibleOnFullScreen:true,skipTransformProcessType:true}]);h.finish(null);assert.equal(await selecting,null);}finally{h.manager.dispose();}
 });
