@@ -1,4 +1,5 @@
 import {memo,useCallback,useEffect,useLayoutEffect,useMemo,useRef,useState} from 'react';
+import {flushSync} from 'react-dom';
 import {Camera,Clapperboard,Layers,Mic,Music,Type,ZoomIn,GripVertical,Plus,Trash2,ChevronDown} from './Icons';
 import type {Clip,Media,Project,TrackKind} from '../shared/types';
 import {clipDuration,projectDuration} from '../shared/types';
@@ -29,10 +30,11 @@ const LayerRowControls=memo(function LayerRowControls({row,change}:{row:Timeline
   <button type="button" className="timeline-layer-remove" aria-label={`Remove ${row.name}`} title="Remove layer. Its clips move to their default rows; Undo restores the layer." onPointerDown={event=>event.preventDefault()} onClick={()=>change(project=>{removeTimelineLayer(project,row.id);})}><Trash2 size={12}/></button>
  </div>;
 });
-/** Follows the playhead store without rendering the timeline, and pages the view when playback or a seek leaves it. */
-function TimelinePlayhead({playhead,scale,scroll}:{playhead:Playhead;scale:number;scroll:React.RefObject<HTMLDivElement|null>}){
- const line=useRef<HTMLDivElement>(null),followed=useRef({time:NaN,scale:NaN});
- useLayoutEffect(()=>{const update=()=>{const time=playhead.get(),x=time*scale,el=scroll.current,ratio=window.devicePixelRatio||1;if(el&&(time!==followed.current.time||scale!==followed.current.scale)){followed.current={time,scale};if(x<el.scrollLeft||x>el.scrollLeft+el.clientWidth-40)el.scrollLeft=Math.max(0,x-el.clientWidth*.25);}if(line.current)line.current.style.transform=`translateX(${Math.round(x*ratio)/ratio}px)`;};update();return playhead.subscribe(update);},[playhead,scale,scroll]);
+/** Follows the playhead store without rendering the timeline, and pages the view when playback or a seek leaves it, or when it mounts, reappears or rescales off-screen. */
+function TimelinePlayhead({playhead,scale,onPage}:{playhead:Playhead;scale:number;onPage:(el:HTMLElement)=>void}){
+ const line=useRef<HTMLDivElement>(null);
+ // Parent refs attach after this effect on mount and reappear, so the scroller comes from the line's own node; each setup follows afresh.
+ useLayoutEffect(()=>{const el=line.current?.closest<HTMLElement>('.timeline-scroll'),followed={time:NaN};const update=()=>{const time=playhead.get(),x=time*scale,ratio=window.devicePixelRatio||1;if(el&&time!==followed.time){followed.time=time;if(x<el.scrollLeft||x>el.scrollLeft+el.clientWidth-40){el.scrollLeft=Math.max(0,x-el.clientWidth*.25);onPage(el);}}if(line.current)line.current.style.transform=`translateX(${Math.round(x*ratio)/ratio}px)`;};update();return playhead.subscribe(update);},[playhead,scale,onPage]);
  return <div className="playhead" ref={line}><span/></div>;
 }
 /** Skips rendering unless its own clip, preview, selection, waveform or clipped window changes. */
@@ -45,10 +47,12 @@ const TimelineClip=memo(function TimelineClip({clip:c,media,preview,selected,pea
 export const Timeline=memo(function Timeline({project:p,playhead,zoom,selected,onSelect,onSeek,change,onDropMedia,tool,scrubbing,selectedIds,onSplit,onZoom,onSelectMany,selectedRange,onRange,onSceneAction,showWaveforms=true,onToggleWaveforms}:{showWaveforms?:boolean;onToggleWaveforms?:()=>void;onSceneAction?:(sceneId:string,kind:'auto-cut'|'visualize')=>void;onSelectMany:(ids:string[])=>void;selectedRange:{start:number;end:number}|null;onRange:(range:{start:number;end:number}|null)=>void;tool:'select'|'blade';scrubbing:boolean;selectedIds:ReadonlySet<string>;onSplit:(id:string,time:number)=>void;onZoom:(value:number)=>void;project:Project;playhead:Playhead;zoom:number;selected:string|null;onSelect:(id:string,additive?:boolean)=>void;onSeek:(n:number)=>void;change:Change;onDropMedia:(id:string,track:TrackKind,time:number,layerId?:string)=>void}){
  // Scroll stays in refs; only the quantized window below is state, so scrolling renders a few times per screen.
  const ref=useRef<HTMLDivElement>(null),scrollPos=useRef({left:0,top:0}),[win,setWin]=useState(()=>timelineWindow(0,1000)),winRef=useRef(win),[drag,setDrag]=useState<DragPreview|null>(null);
- const view=(left:number,width:number)=>{const next=timelineWindow(left,width);if(!sameTimelineWindow(next,winRef.current)){winRef.current=next;setWin(next);}};
+ const view=useCallback((left:number,width:number)=>{const next=timelineWindow(left,width);if(!sameTimelineWindow(next,winRef.current)){winRef.current=next;setWin(next);}},[]);
  const trackLabels=useRef<HTMLDivElement>(null),snapLabel=useRef<HTMLSpanElement>(null),layerLabel=useRef<HTMLSpanElement>(null);
- const placeLabels=()=>{const {left,top}=scrollPos.current;if(trackLabels.current)trackLabels.current.style.transform=`translateY(${-top}px)`;if(snapLabel.current)snapLabel.current.style.top=`${top+55}px`;if(layerLabel.current)layerLabel.current.style.left=`${left+12}px`;};
+ const placeLabels=useCallback(()=>{const {left,top}=scrollPos.current;if(trackLabels.current)trackLabels.current.style.transform=`translateY(${-top}px)`;if(snapLabel.current)snapLabel.current.style.top=`${top+55}px`;if(layerLabel.current)layerLabel.current.style.left=`${left+12}px`;},[]);
  useLayoutEffect(placeLabels);
+ // A playhead page commits its window before the frame paints instead of after the next scroll event; the microtask keeps flushSync out of effects.
+ const page=useCallback((el:HTMLElement)=>{scrollPos.current={left:el.scrollLeft,top:el.scrollTop};placeLabels();queueMicrotask(()=>flushSync(()=>view(el.scrollLeft,el.clientWidth)));},[placeLabels,view]);
  const [addingLayer,setAddingLayer]=useState(false),[layerNotice,setLayerNotice]=useState(''),layerMenu=useRef<HTMLDivElement>(null),addLayerButton=useRef<HTMLButtonElement>(null);
  useEffect(()=>{setAddingLayer(false);setLayerNotice('');},[p.id]);
  useEffect(()=>{if(!addingLayer)return;layerMenu.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus();const close=(event:PointerEvent)=>{if(!layerMenu.current?.contains(event.target as Node))setAddingLayer(false);};window.addEventListener('pointerdown',close);return()=>window.removeEventListener('pointerdown',close);},[addingLayer]);
@@ -183,6 +187,6 @@ export const Timeline=memo(function Timeline({project:p,playhead,zoom,selected,o
   {selectedRange&&<div className="timeline-selected-range" aria-label="Selected time range" style={{left:selectedRange.start*scale,width:(selectedRange.end-selectedRange.start)*scale}}/>}
   {marquee&&<div className="timeline-marquee" style={{left:marquee.x,top:marquee.y,width:marquee.width,height:marquee.height}}/>}
   {tool==='blade'&&<div className="blade-guide" ref={blade} hidden/>}
-  <TimelinePlayhead playhead={playhead} scale={scale} scroll={ref}/>
+  <TimelinePlayhead playhead={playhead} scale={scale} onPage={page}/>
  </div></div></div>;
 });
