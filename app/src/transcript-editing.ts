@@ -20,4 +20,18 @@ export function selectedTranscriptRange(p:Project,words:TranscriptWord[],selecti
 }
 /** Cuts through a plain view; see cutTimelineRange about nested objects shared with the previous state. */
 export function deleteTranscriptSelection(p:Project,selection:WordSelection,padding=.02){const view=plainView(p),words=transcriptWords(view),range=selectedTranscriptRange(view,words,selection,padding);if(!range)throw Error('Select words with usable timing before deleting.');cutTimelineRange(p,range.start,range.end,true,view);return range;}
+/** Replace highlighted wording in one caption. Timed words keep the original span; this does not cut footage. */
+export function rewriteTranscriptSelection(p:Project,selection:WordSelection,text:string){
+ const words=transcriptWords(p),indexes=selectionIndices(words,selection);if(!indexes)throw Error('Select words before editing them.');
+ const chosen=words.slice(indexes[0],indexes[1]+1),next=text.replace(/\s+/g,' ').trim();if(!next)throw Error('Enter the replacement wording, or delete the selection.');
+ if(new Set(chosen.map(word=>word.captionId)).size!==1)throw Error('Edit one caption at a time.');
+ const caption=p.captions.find(item=>item.id===chosen[0].captionId);if(!caption)throw Error('That caption is no longer in the project.');
+ if(chosen.some(word=>!word.timed)||!caption.words?.length){caption.text=next;delete caption.words;return {text:next};}
+ const source=caption.words;let first=-1;
+ for(let i=0;i<=source.length-chosen.length;i++)if(chosen.every((word,offset)=>source[i+offset].text===word.text&&Math.abs(source[i+offset].start-word.start)<1e-4)){first=i;break;}
+ if(first<0)throw Error('The selection no longer matches this caption. Select it again.');
+ const start=chosen[0].start,end=chosen[chosen.length-1].end,tokens=next.split(' '),step=Math.max(end-start,tokens.length*.02)/tokens.length;
+ const replacement=tokens.map((token,index)=>({text:token,start:start+index*step,end:index===tokens.length-1?Math.max(end,start+tokens.length*step):start+(index+1)*step}));
+ source.splice(first,chosen.length,...replacement);caption.text=source.map(word=>word.text.trim()).join(' ');caption.start=source[0].start;caption.end=source[source.length-1].end;return {text:caption.text};
+}
 export function sentenceSelection(words:TranscriptWord[],index:number):WordSelection{let a=index,b=index;const end=(w:TranscriptWord)=>/[.!?。！？][”"')\]]*$/.test(w.text)||!w.timed;while(a>0&&!end(words[a-1]))a--;while(b<words.length-1&&!end(words[b]))b++;return {anchor:a,focus:b};}

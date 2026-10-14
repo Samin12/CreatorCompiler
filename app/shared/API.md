@@ -183,7 +183,11 @@ Chunk indexes begin at zero and are sequential. Repeating the same index with id
 | --- | --- | --- |
 | `GET /ai/settings` | — | `AISettings` without `apiKey`, plus `hasApiKey`. |
 | `PUT /ai/settings` | Partial `AISettings`; an empty `apiKey` clears it | Redacted settings. |
-| `POST /ai/transcribe` | `{projectId,mediaId}` | `{captions:Caption[],provider:string}` in source-media time. |
+| `POST /ai/transcribe` | `{projectId,mediaId}` | `{captions:Caption[],provider:string}` in source-media time. ElevenLabs uses Scribe and a compressed upload. |
+| `GET /ai/voices` | — | `{voices:[{id,name,category}]}` from the saved ElevenLabs account. |
+| `POST /ai/voices/clone` | `{name,projectId,mediaId}` | `{voiceId,voiceName}` after uploading the first minute of that media. The voice is saved locally. |
+| `POST /ai/voices/clone-sample` | multipart `name` and `file` | `{voiceId,voiceName}` from a short uploaded sample, at most 25 MB. |
+| `POST /ai/speak` | `{text,voiceId?}` | `{media,captions}` for generated narration. The caller inserts it. Text is limited to 4,000 characters. |
 | `POST /ai/analyze` | `{projectId,kind:'silence'|'fillers'|'script',prompt?:string}` | `{suggestions:AISuggestion[]}` without applying changes. |
 | `POST /ai/voice-follow` | `?projectId=<id>&cursor=<word-index>`; raw `audio/wav` | `{cursor:number,transcript:string,confidence:number}`. |
 
@@ -193,7 +197,7 @@ Voice following accepts mono 16 kHz PCM16 WAV batches, greater than zero and at 
 
 ## Automatic transcription and quick actions
 
-Shared contracts are in [automation.ts](automation.ts). Automatic transcription defaults to enabled and runs locally when an audible project is opened or saved. Imported or recorded media starts the pipeline once attached to a saved project. The global persisted setting does not change the provider used by explicit `/ai/transcribe` requests.
+Shared contracts are in [automation.ts](automation.ts). Automatic transcription defaults to enabled when an audible project is opened or saved. It uses ElevenLabs Scribe when that provider and an API key are saved, and the local speech engine otherwise. OpenAI and other cloud providers are not used automatically. Imported or recorded media starts the pipeline once attached to a saved project. Explicit `/ai/transcribe` uses the saved provider directly.
 
 Media and clips may carry `audioRole: 'microphone' | 'system'` from explicit capture/import provenance. `POST /recordings` and `POST /media/import` accept this optional field; recording recovery and catalog reimports preserve it. During overlapping speech windows, an enabled microphone takes priority even if quiet; system sound is a fallback after untagged narration/video sources. Clip role overrides media role. Untagged older projects retain their original track/start/ID selection order. Filenames and audio levels never determine the role. Muted, zero-gain, music, image, and known-silent media are excluded.
 
@@ -202,7 +206,7 @@ Media and clips may carry `audioRole: 'microphone' | 'system'` from explicit cap
 | `GET /automation/settings` | — | `{automaticTranscription:boolean}`. |
 | `PUT /automation/settings` | `{automaticTranscription:boolean}` | Saved setting; disabling cancels automatic queued/running jobs. |
 | `GET /projects/:id/automation` | — | `{jobs:AutomationJob[]}`, up to 50 recent jobs. |
-| `POST /projects/:id/transcribe` | `{force?:boolean}` | Local transcription job; source caches remain reusable. |
+| `POST /projects/:id/transcribe` | `{force?:boolean}` | Transcription job. Source caches remain reusable for the same provider and model. |
 | `POST /projects/:id/quick-action` | `{kind:'auto-cut'|'visualize',semantic?:boolean}` | Asynchronous review job. `semantic:true` explicitly invokes optional Claude analysis for Auto-cut. |
 | `GET /automation/:id` | — | Current persisted job snapshot. |
 | `DELETE /automation/:id` | — | Cancelled job; previously saved project edits are not rolled back. |

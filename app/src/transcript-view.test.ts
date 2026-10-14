@@ -10,7 +10,7 @@ import {createPlayhead} from './playhead';
 registerHooks({resolve:(specifier,context,next)=>specifier.endsWith('.css')?{url:'data:text/javascript,',shortCircuit:true}:next(specifier,context)});
 const {Transcript}=await import('./Transcript');
 
-const render=(project:Project,time:number)=>renderToStaticMarkup(React.createElement(Transcript,{project,playhead:createPlayhead(time),onSeek:()=>{},onDelete:()=>{},onUndo:()=>{},onRedo:()=>{}})).replaceAll('<!-- -->','');
+const render=(project:Project,time:number)=>renderToStaticMarkup(React.createElement(Transcript,{project,playhead:createPlayhead(time),onSeek:()=>{},onDelete:()=>{},onRewrite:()=>{},onUndo:()=>{},onRedo:()=>{},onInsertSpeech:async()=>{}})).replaceAll('<!-- -->','');
 const words=(html:string)=>[...html.matchAll(/<span data-word-index="(\d+)" data-selected="(true|false)" class="transcript-word ([^"]*)" title="([^"]*)">([^<]*) <\/span>/g)].map(([,index,selected,classes,title,text])=>({index:Number(index),selected:selected==='true',current:classes.split(' ').includes('current'),untimed:classes.split(' ').includes('untimed'),title,text}));
 const current=(project:Project,time:number)=>words(render(project,time)).filter(word=>word.current).map(word=>word.text);
 const project=()=>{const p=createProject();p.captions=[
@@ -22,7 +22,7 @@ test('transcript renders one sentence per caption with every word in time order'
  const html=render(project(),0),list=words(html);
  assert.deepEqual(list.map(word=>word.text),['Hello','there','world','Overlap','test','Whole caption']);assert.deepEqual(list.map(word=>word.index),[0,1,2,3,4,5]);
  assert.deepEqual([...html.matchAll(/<span class="transcript-stamp">([^<]*)<\/span>/g)].map(match=>match[1]),['0.00s','2.40s','4.00s']);
- assert.equal(list.filter(word=>word.selected).length,0);assert.match(html,/Select words, then press Delete\./);
+ assert.equal(list.filter(word=>word.selected).length,0);assert.match(html,/Line to insert/);
  const whole=list[5];assert.ok(whole.untimed);assert.match(whole.title,/^4\.000–5\.000s · Whole caption: word timing unavailable$/);assert.ok(list.slice(0,5).every(word=>!word.untimed));
 });
 test('transcript highlights the words under the playhead, including overlapping words',()=>{

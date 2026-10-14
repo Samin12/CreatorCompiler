@@ -14,6 +14,7 @@ import { clipCompositeOrder } from "../shared/timeline-layers.ts";
 import { clipShadow } from "../shared/clip-shadow.ts";
 import { canvasBackgroundBMP, canvasBackgroundGeometry, canvasBackgroundRepeatSize, MOVING_DOTS } from "../shared/canvas-background.ts";
 import { zoomTiming } from "../shared/zoom-timing.ts";
+import { cursorDrawSize, cursorMotionSmoothing, cursorPoseAt } from "../shared/cursor-motion.ts";
 import {
   clipDuration,
   clipEffectTiming,
@@ -1269,8 +1270,14 @@ async function executeExport(
         base = `base${n}`;
       }
       if (p.cursor.enabled && p.cursor.points.length) {
-        const pts = [...p.cursor.points].sort((a, b) => a.time - b.time);
-        const size = even(clamp((p.cursor.size * w) / p.canvas.width, 8, 256));
+        const recorded = [...p.cursor.points].sort((a, b) => a.time - b.time);
+        const motion = cursorMotionSmoothing(p.cursor.size, p.cursor.smoothing);
+        const pts = motion > 0 ? recorded.map((point) => {
+          if (point.visible === false) return point;
+          const pose = cursorPoseAt(recorded, point.time, motion);
+          return pose ? { ...point, x: pose.x, y: pose.y } : point;
+        }) : recorded;
+        const size = even(clamp((cursorDrawSize(p.cursor.size) * w) / p.canvas.width, 8, 256));
         const file = await rasterize(
           {
             width: size * 2,
@@ -1308,10 +1315,7 @@ async function executeExport(
             const point = pts[k],
               last = pts[k - 1],
               reset = last.visible === false || point.visible === false,
-              next =
-                reset ? point[key] : previous +
-                (point[key] - previous) *
-                  (1 - clamp(p.cursor.smoothing, 0, 1) * 0.8),
+              next = point[key],
               delta = (next - previous) * dimension,
               dt = Math.max(0.001, point.time - last.time);
             if (delta !== 0) terms.push(reset

@@ -10,6 +10,7 @@ import * as media from './media.js';
 import {ExportStore} from './export-store.js';
 import {getFaceTrack} from './face-tracking.js';
 import * as ai from './ai.js';
+import * as speech from './speech.js';
 import {importBorumi} from './importer.js';
 import * as recordings from './recordings.js';
 import {followSpeech} from './voice-follow.js';
@@ -158,6 +159,10 @@ app.post('/api/ai/voice-follow',express.raw({type:'audio/wav',limit:'350kb'}),ro
 }));
 app.put('/api/ai/settings',route(async(req,res)=>res.json(await storage.saveAISettings(req.body))));
 app.post('/api/ai/transcribe',route(async(req,res)=>{const p=await storage.readProject(req.body.projectId);const m=p.media.find(m=>m.id===req.body.mediaId);if(!m)throw new Error('Media is not in this project');return res.json(await ai.transcribe(m,await storage.readAISettings(),storage.CACHE_DIR));}));
+app.get('/api/ai/voices',route(async(_req,res)=>res.json({voices:await speech.listVoices(await storage.readAISettings())})));
+app.post('/api/ai/voices/clone',route(async(req,res)=>{const name=String(req.body?.name||'');const project=await storage.readProject(String(req.body?.projectId||''));const source=project.media.find(item=>item.id===req.body?.mediaId);if(!source||source.kind==='image'||source.hasAudio===false)throw new Error('Choose audible project media to clone.');const sample=path.join(storage.CACHE_DIR,`voice-sample-${randomUUID()}.m4a`);try{await speech.extractVoiceSample(source.path,sample);return res.json(await speech.cloneVoice(await storage.readAISettings(),name,sample));}finally{await fs.rm(sample,{force:true});}}));
+app.post('/api/ai/voices/clone-sample',upload.single('file'),route(async(req,res)=>{const file=req.file;if(!file)throw new Error('Record or choose an audio sample first.');try{if(file.size>25_000_000)throw new Error('Voice samples must be 25 MB or smaller.');return res.json(await speech.cloneVoice(await storage.readAISettings(),String(req.body?.name||''),file.path));}finally{await fs.rm(file.path,{force:true});}}));
+app.post('/api/ai/speak',route(async(req,res)=>{const text=String(req.body?.text||''),file=path.join(storage.UPLOAD_DIR,`speech-${randomUUID()}.mp3`);try{const spoken=await speech.synthesizeSpeech(await storage.readAISettings(),text,typeof req.body?.voiceId==='string'?req.body.voiceId:undefined,file);const probed=await media.probeMedia(file,storage.CACHE_DIR);probed.name=text.replace(/\s+/g,' ').trim().slice(0,48)||'Generated speech';probed.audioRole='microphone';return res.json({media:await storage.registerMedia(probed),captions:spoken.captions});}catch(error){await fs.rm(file,{force:true});throw error;}}));
 app.post('/api/ai/analyze',route(async(req,res)=>{if(!['silence','fillers','script'].includes(req.body.kind))throw new Error('Unknown analysis kind');return res.json(await ai.analyze(await storage.readProject(req.body.projectId),req.body.kind,await storage.readAISettings(),req.body.prompt));}));
 const dist=path.resolve(import.meta.dirname,'../dist');
 app.get('/api/automation/settings',route(async(_,res)=>res.json(await automation.getSettings())));

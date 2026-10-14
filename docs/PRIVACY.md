@@ -16,7 +16,7 @@ Recording source and countdown preferences use the local app profile. Saved/arch
 
 Editor chat saves messages, job status and a pre-edit project snapshot locally for guarded Undo. Chat history is limited to 50 turns or 128 MiB per project. Deleting a project does not automatically erase its chat history.
 
-Automatic transcription is enabled by default for audible projects when opened or saved. It uses the local model even if a cloud transcription provider is selected in settings. Source transcripts, generated caption metadata, quick-action proposals, pre-edit snapshots and generated visual assets are stored locally. Automatic transcription can be disabled in AI & transcription settings. The service retains up to 50 recent automation jobs per project; removing a project does not remove all associated caches or job records.
+Automatic transcription is enabled by default for audible projects when opened or saved. It uses ElevenLabs Scribe, and uploads prepared audio, only when ElevenLabs is the saved provider and an API key is present. Otherwise it uses the local model. Source transcripts, generated caption metadata, quick-action proposals, pre-edit snapshots and generated visual assets are stored locally. Automatic transcription can be disabled in AI & transcription settings. The service retains up to 50 recent automation jobs per project; removing a project does not remove all associated caches or job records.
 
 New recordings retain whether audio came from the microphone or system sound. Automatic transcription prefers an enabled microphone during overlap, including quiet portions. Imported projects use explicit source-role metadata when available; older untagged projects keep their existing source order. Roles are not inferred from filenames or voice identity.
 
@@ -24,14 +24,15 @@ Media recovery reads and hashes the chosen local replacement, probes its metadat
 
 ## Optional network use
 
-- **Cloud transcription:** an explicit transcription request sends prepared audio and your requested language/model parameters to the configured provider. API credentials authenticate that request.
+- **Cloud transcription:** a manual transcription request sends prepared audio and your requested language/model parameters to the configured provider. When ElevenLabs and a key are saved, automatic transcription does the same with Scribe. API credentials authenticate that request.
+- **ElevenLabs voice:** cloning a voice uploads a short audio sample. Inserting speech uploads the line of text and downloads the generated audio. The saved voice ID stays in the local settings file.
 - **Script assistance:** an explicit script request sends the project's scene scripts, scene names and your prompt to the configured compatible chat provider.
 - **MCP assistant:** the MCP server itself communicates with the local SceneForge service. The connected assistant can read project data and request composed images, transcripts or media operations. If that assistant uses a cloud model, its own handling of tool results determines what leaves your Mac.
 - **Claude Code editor chat:** pressing Send invokes your installed Claude Code CLI using its existing authentication and configuration. SceneForge does not copy its credential files. The request includes your prompt, project identity, playhead, selected clip IDs/time range, relevant project metadata and up to four completed chat turns from that project. Local source paths and importer metadata are removed from tool responses. If Claude requests frame inspection, composed images at authorized times are supplied; these can show overlapping unselected layers. Selection limits edits, not strict layer-data visibility, and earlier chat turns can contain broader context. With no clip or time selection, the editor explicitly uses the entire project. Claude's provider and your CLI configuration determine how submitted content is processed and retained.
 - **Optional Claude narrative cuts:** enabling Claude analysis in Auto-cut sends the project's timed transcript and scene names/times through the installed Claude Code CLI. It does not send media files, local source paths or chat history. This can use your Claude plan or incur provider charges. The planner has no editing tools; it returns unchecked cut proposals for review. Ordinary Auto-cut and Visualize use local processing and existing project content.
 - **Installation/building:** npm dependencies, upstream runtime sources and optional models may be downloaded during setup. The static public website links to GitHub and Apple; those services have their own policies.
 
-Local Whisper and local speech-following use local audio processing. Provider selection does not by itself authorize a cloud operation; the app sends content when the corresponding operation is invoked. An authorized MCP assistant can invoke such an operation using your configured provider.
+Local Whisper and local speech-following use local audio processing. Choosing ElevenLabs and saving a key allows automatic transcription to upload prepared audio. Other cloud operations still wait for an explicit request. An authorized MCP assistant can invoke a configured provider.
 
 ## Local control boundary
 

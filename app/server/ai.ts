@@ -73,24 +73,24 @@ export async function transcribe(media:Media,settings:AISettings,workDir:string,
   if(!model)throw new Error('Set the local Whisper GGML model path in AI settings, or SCENEFORGE_WHISPER_MODEL.');
   try{if(!(await stat(model)).isFile())throw new Error()}catch{throw new Error('Local Whisper model file is missing. Set a valid GGML model path in AI settings.')}
  }else if(!settings.apiKey&&settings.provider!=='openai-compatible')throw new Error('Add your own provider API key in AI settings before cloud transcription.');
- await mkdir(workDir,{recursive:true});const dir=path.join(workDir,`transcribe-${makeId()}`);await mkdir(dir);const audio=path.join(dir,'audio.wav');
+ await mkdir(workDir,{recursive:true});const dir=path.join(workDir,`transcribe-${makeId()}`);await mkdir(dir);const cloud=settings.provider!=='local';const audio=path.join(dir,cloud?'audio.m4a':'audio.wav');
  // Background QoS with two threads runs roughly 2.5x slower, so automatic work gets a proportionally longer deadline.
  const limit=(options.background?3:1)*30*60*1000;
  try{
   const input=options.prepared&&settings.provider==='local'?media.path:audio;
-  if(input===audio)await run(ffmpeg,['-hide_banner','-loglevel','error','-nostdin','-i',media.path,'-vn','-ac','1','-ar','16000','-c:a','pcm_s16le',audio],limit,options.signal,options.background,options.hold);options.progress?.(.2);
+  if(input===audio)await run(ffmpeg,cloud?['-hide_banner','-loglevel','error','-nostdin','-i',media.path,'-vn','-ac','1','-ar','16000','-c:a','aac','-b:a','64k',audio]:['-hide_banner','-loglevel','error','-nostdin','-i',media.path,'-vn','-ac','1','-ar','16000','-c:a','pcm_s16le',audio],limit,options.signal,options.background,options.hold);options.progress?.(.2);
   if(settings.provider==='local'){
    const output=path.join(dir,'transcript');await run(command!,['-m',model,'-f',input,'-l',settings.language||'auto','-t',options.background?'2':'4','-ojf','-of',output,'-ml','42','-sow','-np'],limit,options.signal,options.background,options.hold);options.progress?.(.95);
    return {captions:parseTranscription(JSON.parse(await readFile(`${output}.json`,'utf8'))),provider:'local whisper.cpp'};
   }
-  const data=await readFile(audio);if(data.byteLength>24_000_000)throw new Error('Cloud transcription input exceeds the current 24 MB upload limit. Use local transcription or transcribe a shorter media file.');
-  const form=new FormData();form.append('file',new Blob([data]),'audio.wav');const headers:Record<string,string>={};
+  const data=await readFile(audio);if(data.byteLength>500_000_000)throw new Error('Prepared audio is larger than 500 MB. Split the recording or use local transcription for this file.');
+  const form=new FormData();form.append('file',new Blob([data],{type:cloud?'audio/mp4':'audio/wav'}),cloud?'audio.m4a':'audio.wav');const headers:Record<string,string>={};
   let route='/audio/transcriptions';
-  if(settings.provider==='elevenlabs'){route='/speech-to-text';headers['xi-api-key']=settings.apiKey!;form.append('model_id',settings.model||'scribe_v2');form.append('timestamps_granularity','word');form.append('tag_audio_events','false');if(settings.language&&settings.language!=='auto')form.append('language_code',settings.language)}
+  if(settings.provider==='elevenlabs'){const scribe=/scribe/i.test(settings.model||'')?settings.model.trim():'scribe_v2';route='/speech-to-text';headers['xi-api-key']=settings.apiKey!;form.append('model_id',scribe);form.append('timestamps_granularity','word');form.append('tag_audio_events','false');if(settings.language&&settings.language!=='auto')form.append('language_code',settings.language)}
   else{if(settings.apiKey)headers.Authorization=`Bearer ${settings.apiKey}`;form.append('model',settings.model||'whisper-1');form.append('response_format','verbose_json');form.append('timestamp_granularities[]','word');if(settings.language&&settings.language!=='auto')form.append('language',settings.language)}
   const response=await fetch(providerUrl(settings,route),{method:'POST',headers,body:form,signal:options.signal?AbortSignal.any([options.signal,AbortSignal.timeout(600_000)]):AbortSignal.timeout(600_000)});
-  if(!response.ok)throw new Error(`Transcription provider returned HTTP ${response.status}. Check the API key, transcription model, and provider limits.`);
-  return {captions:parseTranscription(await response.json()),provider:settings.provider};
+  if(!response.ok){const detail=(await response.text().catch(()=>'')).replace(/sk_[A-Za-z0-9]+/g,'[key]').slice(0,180);throw new Error(`Transcription provider returned HTTP ${response.status}.${detail?` ${detail}`:''} Check the API key, transcription model, and provider limits.`);}
+  return {captions:parseTranscription(await response.json()),provider:settings.provider==='elevenlabs'?'ElevenLabs Scribe':settings.provider};
  }finally{await rm(dir,{recursive:true,force:true})}
 }
 export function parseSilences(output:string,duration:number):Array<[number,number]>{

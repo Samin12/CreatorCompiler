@@ -10,9 +10,10 @@ import {previewAudioMixer} from './preview-audio';
 import {canvasBackgroundStyle} from '../shared/canvas-background';
 import {zoomScaleAt} from '../shared/zoom-timing';
 import {usePlayheadTime,type Playhead} from './playhead';
-import {clipFilterCss,cursorPointLookup,stageIndex,stageSlots} from './stage-view';
+import {clipFilterCss,stageIndex,stageSlots} from './stage-view';
 
-/** `visible` is false for a pre-rolled upcoming clip: it stays mounted, paused, silent and transparent, with no vision or face-tracking work. */
+/** `visible` is false for a pre-rolled upcoming clip: it stays mounted, paused, silent and transparent, with no vision or face-tracking work. */import {cursorDrawSize,cursorMotionSmoothing,cursorPoseAt} from '../shared/cursor-motion';
+
 function ClipView({clip,media,time,visible,playing,quality,onSelect,project:p,pixelScale,playbackRate}:{clip:Clip;media:Media;time:number;visible:boolean;playing:boolean;quality:boolean;onSelect:()=>void;project:Project;pixelScale:number;playbackRate:number}){
  const ref=useRef<HTMLVideoElement|null>(null),audio=useRef<HTMLAudioElement|null>(null),backdrop=useRef<HTMLVideoElement|null>(null),[audioError,setAudioError]=useState(false);
  const sourceTime=clip.sourceIn+Math.max(0,time-clip.start)*clip.speed,visionEnabled=Boolean(clip.effects.background&&clip.effects.background!=='none');
@@ -54,7 +55,7 @@ export const Stage=memo(function Stage({project:p,playhead,playing,playbackRate=
  useEffect(()=>()=>previewAudioMixer.release(),[]);
  const scale=width/p.canvas.width,caption=p.captionStyle.enabled?p.captions.find(c=>time>=c.start&&time<c.end):null;
  const pattern=p.canvas.backgroundPattern==='moving-dots',pixelRatio=typeof window==='undefined'?1:window.devicePixelRatio||1;
- const pointAt=useMemo(()=>p.cursor.enabled?cursorPointLookup(p.cursor.points):null,[p.cursor.enabled,p.cursor.points]),point=pointAt?.(time);
+ const pose=p.cursor.enabled?cursorPoseAt(p.cursor.points,time,cursorMotionSmoothing(p.cursor.size,p.cursor.smoothing)):null;
  const mediaById=useMemo(()=>new Map(p.media.map(m=>[m.id,m])),[p.media]);
  const index=useMemo(()=>stageIndex(p),[p.clips,p.timelineLayers]);
  // Each row also mounts its next clip up to two seconds of playback ahead. DOM order follows the playback key, never the
@@ -71,7 +72,7 @@ export const Stage=memo(function Stage({project:p,playhead,playing,playbackRate=
   </div>
   {p.elements.filter(e=>time>=e.start&&time<e.start+e.duration).map(e=><div key={e.id} className={`stage-element element-${e.type}`} onClick={event=>{event.stopPropagation();onSelect(e.id);}} style={{left:`${e.x*100}%`,top:`${e.y*100}%`,width:`${e.width*100}%`,height:`${e.height*100}%`,fontSize:e.fontSize*scale,color:e.color,background:e.type==='arrow'?'transparent':e.background,opacity:e.opacity,transform:`rotate(${e.rotation}deg)`,border:e.type==='rectangle'||e.type==='ellipse'?`${Math.max(1,3*scale)}px solid ${e.color}`:undefined,backdropFilter:e.type==='blur'?'blur(12px)':undefined}}>{e.type==='text'?e.text:e.type==='arrow'?<svg viewBox="0 0 100 40" preserveAspectRatio="none"><path d="M2 20H90 M72 4L94 20L72 36" fill="none" stroke={e.color} strokeWidth="4"/></svg>:null}</div>)}
   {caption&&<div className={`stage-caption caption-${p.captionStyle.position}`} style={{fontSize:p.captionStyle.fontSize*scale,color:p.captionStyle.color}}><span style={{background:p.captionStyle.background}}>{caption.text}</span></div>}
-  {p.cursor.enabled&&point&&point.visible!==false&&<div className={`stage-cursor ${p.cursor.highlight?'has-highlight':''}`} style={{left:`${point.x*100}%`,top:`${point.y*100}%`,width:p.cursor.size*scale,color:p.cursor.color}}><svg viewBox="0 0 24 32"><path d="M2 1v27l7-7 6 10 5-3-6-10 10-1z" fill="currentColor" stroke="#171b27"/></svg></div>}
+  {pose&&pose.visible&&<div className={`stage-cursor ${p.cursor.highlight||pose.pressed?'has-highlight':''}`} style={{left:`${pose.x*100}%`,top:`${pose.y*100}%`,width:cursorDrawSize(p.cursor.size)*scale,color:p.cursor.color}}><svg viewBox="0 0 64 88" aria-hidden="true"><path d="M7 3v55l15-14 12 30 14-6-12-30 26-2z" fill="currentColor" stroke="#171717" strokeWidth="6" strokeLinejoin="round"/></svg></div>}
   {!p.clips.length&&<button className="stage-empty" style={pattern?{background:'transparent',color:'#f4f4f4'}:undefined} onClick={onImport}><div className="stage-empty-icon"><Film size={32}/></div><strong style={pattern?{color:'#f4f4f4'}:undefined}>Your story starts here</strong><span style={pattern?{color:'#b8b8b8'}:undefined}>Import a video, record a take, or add an element.</span><span className="button primary"><Plus size={14}/>Import media</span></button>}
  </div><div className="stage-caption-label"><span>{p.canvas.width} × {p.canvas.height}</span><span>{p.settings.previewQuality==='proxy'?'Adaptive preview':'Original quality'}</span></div></div>;
 });

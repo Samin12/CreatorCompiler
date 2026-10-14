@@ -167,10 +167,13 @@ export async function importBorumi(input:string,options:{roundtripDirectory?:str
  if(cursorEvents.size){
   p.cursor.points=cursorForTimeline(p.clips,new Map(p.media.map(m=>[m.id,m])),cursorEvents,p.canvas);
   const globalCursor=decode(timeline.cursor,{});const style=globalCursor.style??decode(timeline.cursor_style,{});
-  p.cursor.enabled=style.kind!=='Hidden'&&p.cursor.points.some(point=>point.visible!==false);p.cursor.smoothing=0;
+  p.cursor.enabled=style.kind!=='Hidden'&&p.cursor.points.some(point=>point.visible!==false);
+  const sizeFactor=numeric(globalCursor.size_factor,1);
+  p.cursor.size=Math.round(Math.min(240,Math.max(32,168*(sizeFactor>0?sizeFactor:1))));
+  p.cursor.smoothing=(globalCursor.following_mode?.kind??'Auto')==='Auto' ? .62 : 0;
   if(style.kind==='Pointer'&&rgb(style.primary_color))p.cursor.color=rgb(style.primary_color)!;
   p.cursor.highlight=!!globalCursor.highlight;
-  warnings.add('Cursor positions imported from version-1 sidecars through source offsets, speed and layouts. Original cursor artwork, shape changes, size calibration, smoothing, click sounds/effects and timed style overrides are not reproduced.');
+  warnings.add('Cursor positions imported from version-1 sidecars through source offsets, speed and layouts. Motion eases when following is automatic, at the recorded size factor. Native cursor artwork, click sounds and timed style overrides are not reproduced.');
  }
  p.importWarnings=[...warnings];
  Object.assign(p,{importMetadata:{sourceApp:'Borumi',sourcePath:dbPath,unmappedSegments:unmapped,sourceSettings:{canvas:decode(original.render_target),cursorSidecars:{found:cursorSidecars,decoded:cursorEvents.size,sourceEvents:[...cursorEvents.values()].reduce((n,events)=>n+events.length,0),timelinePoints:p.cursor.points.length,format:'Borumi cursor v1',timing:'source media seconds'},timeline:Object.fromEntries(Object.entries(timeline).filter(([k])=>k!=='project_id').map(([k,v])=>[k,decode(v,v)]))}}});

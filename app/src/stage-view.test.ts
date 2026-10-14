@@ -105,10 +105,10 @@ test('Stage pre-rolls upcoming clips transparent, inert and hidden from assistiv
  const p=project();p.cursor={...p.cursor,enabled:true,points:[{time:0,x:.1,y:.1},{time:8,x:.5,y:.25}]};
  const html=renderToStaticMarkup(React.createElement(Stage,{project:p,playhead:createPlayhead(9),playing:false,onSelect:()=>{},onImport:()=>{}}));
  assert.equal(html.match(/<video/g)?.length,4);assert.equal(html.match(/<audio/g)?.length,2);
- assert.equal(html.match(/opacity:0;pointer-events:none/g)?.length,2);assert.equal(html.match(/aria-hidden="true"/g)?.length,2);
+ assert.equal(html.match(/opacity:0;pointer-events:none/g)?.length,2);assert.equal(html.match(/<(?!svg)[a-z]+[^>]*aria-hidden="true"/g)?.length,2);
  assert.equal(html.match(/<audio[^>]*preload="auto"/g)?.length,1);assert.equal(html.match(/<video[^>]*preload="auto"/g)?.length,2);
  assert.ok(!/brightness\(/.test(html));assert.match(html,/filter:none/);
  for(const [,z] of html.matchAll(/class="stage-layer" style="z-index:(-?\d+)"/g))assert.ok(Number(z)<0);
  assert.match(html,/class="stage-inner" style="inset:0;pointer-events:none"/,'clicks reach the media layers stacked below .stage-inner');
- assert.match(html,/class="stage-cursor [^"]*" style="left:50%;top:25%;/);
+ const cursor=html.match(/class="stage-cursor [^"]*" style="left:([\d.]+)%;top:([\d.]+)%;/);assert.ok(cursor,'cursor rendered');assert.ok(Math.abs(Number(cursor[1])-50)<.05&&Math.abs(Number(cursor[2])-25)<.05,'smoothed cursor settles on the last sample');
 });

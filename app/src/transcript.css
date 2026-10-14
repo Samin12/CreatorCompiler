@@ -22,16 +22,17 @@
 }
 .transcript-editor:focus-visible { box-shadow: inset 0 0 0 2px #3b82f6; }
 .transcript-editor .transcript-help {
-  font-size: 11px;
-  line-height: 1.5;
-  padding: 10px 14px;
+  font-size: 12px;
+  line-height: 1.45;
+  padding: 10px 12px;
   color: var(--transcript-muted);
   border-bottom: 1px solid var(--line);
+  overflow-wrap: anywhere;
 }
 .transcript-editor .transcript-word-list {
   overflow: auto;
-  min-height: 50px;
-  flex: 1;
+  min-height: 72px;
+  flex: 1 1 72px;
   padding: 5px 14px;
   touch-action: pan-y;
   user-select: none;
@@ -49,6 +50,10 @@
   padding: 12px 14px;
   display: flex;
   gap: 7px;
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
   flex-direction: column;
   font-size: 11px;
   line-height: 1.5;
@@ -61,6 +66,19 @@
 .transcript-editor .transcript-selection .button.danger { color: var(--transcript-danger); }
 .transcript-editor .transcript-selection .button.danger:hover { background: var(--transcript-danger-hover); }
 .transcript-editor .transcript-selection .button:focus-visible { outline: 2px solid #3b82f6; outline-offset: 2px; }
+.transcript-editor .transcript-empty { margin: 12px 0; color: var(--transcript-muted); font-size: 13px; line-height: 1.45; }
+.transcript-editor .transcript-draft-label { display: flex; flex-direction: column; gap: 4px; font-size: 11px; font-weight: 650; }
+.transcript-editor .transcript-draft,
+.transcript-editor .transcript-clone input,
+.transcript-editor .transcript-clone select { width: 100%; box-sizing: border-box; min-width: 0; font: inherit; font-size: 13px; font-weight: 450; line-height: 1.4; color: var(--foreground); background: var(--background); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; }
+.transcript-editor .transcript-draft { resize: vertical; min-height: 58px; }
+.transcript-editor .transcript-actions { display: flex; flex-direction: column; gap: 6px; }
+.transcript-editor .transcript-actions .button { width: 100%; justify-content: center; white-space: normal; text-align: center; }
+.transcript-editor .transcript-voice,
+.transcript-editor .transcript-clone { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.transcript-editor .transcript-voice { flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: space-between; }
+.transcript-editor .transcript-clone label { display: flex; flex-direction: column; gap: 4px; font-size: 11px; min-width: 0; }
+.transcript-editor .transcript-selection p { margin: 0; color: var(--foreground); overflow-wrap: anywhere; }
 @media (prefers-reduced-motion: reduce) {
   .transcript-editor .button { transition: none; }
 }
