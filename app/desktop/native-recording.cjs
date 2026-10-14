@@ -30,7 +30,7 @@ function nativeOptions(input, directory, hostPid) {
 }
 
 function createNativeRecordingManager({ipcMain,getMainWindow,origin,dataDir,helperPath=path.resolve(__dirname,'../server-dist/sceneforge-screen-recorder'),spawnProcess=spawn,hostPid=process.pid,platform=process.platform,onState,onPrepare,spareIdleMs=120000}) {
- let current, disposed = false, resetting, generation = 0, spare = null;
+ let current, disposed = false, resetting, generation = 0, spare = null, previewWanted = true;
  const verify = event => { const window = getMainWindow(); if (!window || window.isDestroyed() || event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame) throw Error('Untrusted native recording request.'); let actual; try { actual = new URL(event.senderFrame.url).origin; } catch {} if (actual !== origin) throw Error('Untrusted native recording origin.'); };
  const publish = value => { const window = getMainWindow(); if (window && !window.isDestroyed()) window.webContents.send('native-recording-event', value); };
  const deliverState = (session,message) => {if(!['started','paused','resumed','stopped','error','bounds'].includes(message.type))return;try{onState?.({id:session.id,...message,selection:structuredClone(session.input.selection),recordVideo:session.input.recordVideo!==false});}catch{}};
@@ -90,7 +90,7 @@ function createNativeRecordingManager({ipcMain,getMainWindow,origin,dataDir,help
     if(message.type==='error'){fail(session,Error(message.message||'Native recording failed.'));continue;}
     if(session.status==='failed')continue;
     if(message.type==='bounds'){notifyState(session,message);continue;}
-    if(message.type==='started'){session.status='recording';session.previewControl=message.previewControl===true;session.result={...session.result,startedAtMs:message.startedAtMs,width:message.width,height:message.height,captureBounds:message.captureBounds};settle(session,'started');if(!mainVisible())setPreview(session,false);notifyLater(session,message);publish({id:session.id,...message});continue;}
+    if(message.type==='started'){session.status='recording';session.previewControl=message.previewControl===true;session.result={...session.result,startedAtMs:message.startedAtMs,width:message.width,height:message.height,captureBounds:message.captureBounds};settle(session,'started');if(!previewWanted)setPreview(session,false);notifyLater(session,message);publish({id:session.id,...message});continue;}
     else if(message.type==='paused'){session.status='paused';session.result.duration=message.duration;session.result.transitionAtMs=message.transitionAtMs;settle(session,'paused');}
     else if(message.type==='resumed'){session.status='recording';session.result.duration=message.duration;session.result.transitionAtMs=message.transitionAtMs;settle(session,'resumed');}
     else if(message.type==='stopped'){
@@ -112,8 +112,10 @@ function createNativeRecordingManager({ipcMain,getMainWindow,origin,dataDir,help
   child.stdin.write(JSON.stringify(options)+'\n');try{onPrepare?.({recordVideo:options.recordVideo});}catch{}return started;
  }
  // Previews are for the editor window only; the helper stops making them while it is hidden.
+ // Its switch follows the window's hide/show events, not isVisible(), which may also
+ // count occlusion and would leave previews off with no event to turn them back on.
  function setPreview(session,enabled){if(session?.previewControl&&['recording','paused'].includes(session.status))try{session.child.stdin.write(JSON.stringify({command:'preview',enabled})+'\n');}catch{}}
- const setPreviewEnabled=enabled=>setPreview(current,enabled===true);
+ const setPreviewEnabled=enabled=>{previewWanted=enabled===true;setPreview(current,previewWanted);};
  const sessionFor=id=>{if(!current||current.id!==id)throw Error('Native recording session not found.');return current;};
  async function pause(id){const s=sessionFor(id);if(s.status==='paused')return result(s);if(s.status!=='recording')throw Error('Recording is not active.');const p=wait(s,'paused',10000);write(s,'pause');return p;}
  async function resume(id){const s=sessionFor(id);if(s.status==='recording')return result(s);if(s.status!=='paused')throw Error('Recording is not paused.');const p=wait(s,'resumed',10000);write(s,'resume');return p;}

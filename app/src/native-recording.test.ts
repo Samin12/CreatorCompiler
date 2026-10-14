@@ -81,11 +81,18 @@ test('started state reaches the border callback after the start reply, and later
  }finally{await f.close();}
 });
 test('previews are not read or sent while the editor is hidden, and a capable helper is told to pause them',async()=>{
- const f=await fixture(true,{started:{previewControl:true}});try{let visible=false;f.window.isVisible=()=>visible;f.window.isMinimized=()=>false;
+ const f=await fixture(true,{started:{previewControl:true}});try{let visible=false;f.window.isVisible=()=>visible;f.window.isMinimized=()=>false;f.manager.setPreviewEnabled(false);
   const started=await f.manager.start({selection,systemAudio:false}),directory=f.commands[0].directory,file=path.join(directory,'preview.jpg');await fs.writeFile(file,Buffer.from([0xff,0xd8,0xff,0xd9]));
   assert.deepEqual(f.commands.at(-1),{command:'preview',enabled:false});f.children[0].send({type:'preview',path:file,width:4,height:4});await new Promise(r=>setTimeout(r,20));assert.equal(f.events.some(e=>e.type==='preview'),false);
   visible=true;f.manager.setPreviewEnabled(true);assert.deepEqual(f.commands.at(-1),{command:'preview',enabled:true});f.children[0].send({type:'preview',path:file,width:4,height:4});await new Promise(r=>setTimeout(r,20));assert.equal(f.events.filter(e=>e.type==='preview').length,1);
   await f.manager.stop(started.id);const count=f.commands.length;f.manager.setPreviewEnabled(false);assert.equal(f.commands.length,count);
+ }finally{await f.close();}
+});
+test('an editor that is merely not frontmost at start keeps helper previews on, though unread until visible',async()=>{
+ const f=await fixture(true,{started:{previewControl:true}});try{let visible=false;f.window.isVisible=()=>visible;f.window.isMinimized=()=>false;
+  const started=await f.manager.start({selection,systemAudio:false}),file=path.join(f.commands[0].directory,'preview.jpg');await fs.writeFile(file,Buffer.from([0xff,0xd8,0xff,0xd9]));assert.deepEqual(f.commands.map(c=>c.command),['start']);
+  f.children[0].send({type:'preview',path:file,width:4,height:4});await new Promise(r=>setTimeout(r,20));assert.equal(f.events.some(e=>e.type==='preview'),false);
+  visible=true;f.children[0].send({type:'preview',path:file,width:4,height:4});await new Promise(r=>setTimeout(r,20));assert.equal(f.events.filter(e=>e.type==='preview').length,1);await f.manager.stop(started.id);
  }finally{await f.close();}
 });
 test('helpers without preview control never receive preview commands',async()=>{

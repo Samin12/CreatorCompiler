@@ -117,9 +117,10 @@ const gotLock=app.requestSingleInstanceLock();
 if(!gotLock)app.quit();
 app.on('second-instance',()=>{if(mainWindow){mainWindow.show();mainWindow.focus();}});
 // /api/ready answers as soon as the service listens (no media probing); an older
-// already-running service only has /api/health.
+// already-running service only has /api/health. A port holder that never answers
+// times out so the start deadline still applies.
 async function serviceAnswers(){
- for(const route of ['/api/ready','/api/health']){const r=await fetch(base+route);if(route==='/api/ready'&&r.status===404)continue;const health=await r.json();return r.ok&&health.application==='SceneForge'&&health.version==='0.1.0';}
+ for(const route of ['/api/ready','/api/health']){const r=await fetch(base+route,{signal:AbortSignal.timeout(route==='/api/ready'?2000:10000)});if(route==='/api/ready'&&r.status===404){await r.body?.cancel();continue;}const health=await r.json();return r.ok&&health.application==='SceneForge'&&health.version==='0.1.0';}
  return false;
 }
 async function startService(){
@@ -134,8 +135,10 @@ async function startService(){
  throw new Error('The local media service did not start. Reopen SceneForge and check that port 4174 is available.');
 }
 // Hidden/minimized editor: the renderer pauses decorative work, the recorder stops previews.
+// Focus re-checks too, so a stale value cannot outlive the window coming forward.
+let mainVisibility=null;
 function publishMainVisibility(){
- if(!mainWindow||mainWindow.isDestroyed())return;const visible=mainWindow.isVisible()&&!mainWindow.isMinimized();
+ if(!mainWindow||mainWindow.isDestroyed())return;const visible=mainWindow.isVisible()&&!mainWindow.isMinimized();if(visible===mainVisibility)return;mainVisibility=visible;
  mainWindow.webContents.send('main-window-visibility',visible);nativeRecording?.setPreviewEnabled?.(visible);
 }
 app.whenReady().then(async()=>{
@@ -167,7 +170,8 @@ app.whenReady().then(async()=>{
  mainWindow.webContents.on('did-start-loading',()=>{captureManager.reset();recordingHud.end();void nativeRecording.reset?.();});
  mainWindow.webContents.on('render-process-gone',resetShortcutContext);
  mainWindow.webContents.on('render-process-gone',()=>{captureManager.reset();recordingHud.end();void nativeRecording.reset?.();});
- for(const name of ['show','hide','minimize','restore'])mainWindow.on(name,publishMainVisibility);
+ mainWindow.webContents.on('did-start-loading',()=>{mainVisibility=null;});
+ for(const name of ['show','hide','minimize','restore','focus'])mainWindow.on(name,publishMainVisibility);
  mainWindow.once('ready-to-show',()=>{if(mainWindow&&!mainWindow.isDestroyed())mainWindow.show();});
  mainWindow.on('closed',()=>{recordingHud.end({restoreMain:false});void nativeRecording.reset?.();captureManager.reset();clearGlobalShortcuts();shortcutContext=emptyShortcutContext();mainWindow=null;});
  ipcMain.handle('choose-media',async e=>{verify(e);const result=await dialog.showOpenDialog(mainWindow,{title:'Import media',properties:['openFile','multiSelections'],filters:[{name:'Video, audio and images',extensions:['mp4','mov','webm','mkv','wav','mp3','m4a','aac','flac','png','jpg','jpeg','webp','gif']} ]});return result.canceled?[]:result.filePaths;});
