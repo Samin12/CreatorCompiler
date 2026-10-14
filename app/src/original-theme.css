@@ -79,3 +79,9 @@ body,.app-shell{background:var(--background);color:var(--foreground)}h1,h2,h3{le
 .recent-project-tools .recent-project-trash:hover{color:#dc2626;background:#fef2f2}
 [data-theme=dark] .recent-project-tools .recent-project-trash:hover{color:#fca5a5;background:rgba(127,29,29,.25)}
 .recent-projects>header .button{font-size:12px;min-height:30px;padding:4px 8px}
+/* Transcription panel: readable size, and a calm tone when the message is information rather than an error. */
+.transcription-status{font-size:12px}
+.transcription-status button,.transcription-status p{font-size:12px}
+.transcription-status p{line-height:1.5}
+.transcription-status p.calm{color:var(--muted)}
+.transcription-status small{font-size:11px}
