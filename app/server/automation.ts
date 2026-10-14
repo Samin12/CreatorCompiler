@@ -39,9 +39,9 @@ export function createAutomationEngine(overrides:Partial<Dependencies>={}){
   signal.throwIfAborted();const info=await fs.stat(media.path);const model=settings.model?await fs.stat(settings.model).catch(()=>undefined):undefined;
   const key=hash({version:2,path:media.path,size:info.size,mtime:info.mtimeMs,model:settings.model,modelSize:model?.size,modelMtime:model?.mtimeMs,language:settings.language,command:settings.localCommand});
   const file=path.join(d.cache,'automatic-transcripts',key+'.json'),cached=await json<{captions:Caption[]}|undefined>(file,undefined);if(cached){progress(1);return cached.captions;}
-  // Automatic jobs never start a local model while a capture is open.
+  // Automatic jobs never start a local model while a capture is open, and a running one is suspended when a capture starts.
   if(background)await d.capture.idle(signal);
-  const result=await d.transcribe(media,settings,d.cache,{signal,progress,background});signal.throwIfAborted();await write(file,result);return result.captions;
+  const result=await d.transcribe(media,settings,d.cache,{signal,progress,...(background?{background,hold:d.capture}:{})});signal.throwIfAborted();await write(file,result);return result.captions;
  }
  async function transcribeIntoProject(r:RecordState,signal:AbortSignal,scopeId?:string){
   const before=await d.read(r.job.projectId),scope=scopeId?sceneScope(before,scopeId):undefined,signature=speechSignature(before),target=scope?scenePlanningProject(before,scope):before,windows=narrationWindows(target);if(!windows.length)throw Error('Add an audible narration, camera or screen clip to transcribe.');

@@ -81,7 +81,7 @@ test('quiet microphone never falls back to desktop speech and automatic work rem
 });
 test('automatic transcription waits for open captures and runs at background priority while requested work proceeds',async()=>{
  const {createCaptureActivity}=await import('./capture-activity.js');const capture=createCaptureActivity({staleMs:5000,settleMs:20}),seen:Array<boolean|undefined>=[];
- const s=await setup(async(_m:any,_s:any,_w:any,o:any)=>{seen.push(o.background);return {captions:structuredClone(captions),provider:'local'};},{capture});
+ const s=await setup(async(_m:any,_s:any,_w:any,o:any)=>{seen.push(o.background===true&&o.hold===capture);return {captions:structuredClone(captions),provider:'local'};},{capture});
  try{
   capture.open('camera');const automatic=await s.engine.queueTranscription(s.project.id,{automatic:true});
   const visual=await s.engine.quickAction(s.project.id,{kind:'visualize'});assert.equal((await finished(s.engine,visual.id)).status,'ready');
