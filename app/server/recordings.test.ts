@@ -49,7 +49,9 @@ test('very long chunk lists join into one intermediate, and startup cleanup remo
  for(const [i,text] of ['ab','cd','e'].entries())await writeFile(path.join(dir,String(i).padStart(9,'0')+'.chunk'),text);
  const chunks=(await readdir(dir)).sort();assert.equal(await r.chunkInput(dir,chunks,'webm'),'concat:'+chunks.join('|'));assert.equal(await r.chunkInput(dir,chunks,'webm',10),'capture.webm');assert.equal(await readFile(path.join(dir,'capture.webm'),'utf8'),'abcde');
  const input=path.join(folder,'cleanup.webm');await promisify(execFile)('ffmpeg',['-v','error','-f','lavfi','-i','sine=frequency=440:duration=0.3','-c:a','libopus','-y',input]);const bytes=await readFile(input);
+ const waves=async()=>(await readdir(s.CACHE_DIR)).filter(f=>f.endsWith('.wave-v2.json')).length;await r.waveformWarmup();const before=await waves();
  const done=await r.createRecording('Done','audio/webm'),open=await r.createRecording('Open','audio/webm');await r.appendRecording(done.id,0,bytes);await r.appendRecording(open.id,0,bytes);const media=await r.finishRecording(done.id);
+ await r.waveformWarmup();assert.equal(await waves(),before+1,'the audio take review waveform is cached in the background');
  const stray=path.join(path.dirname(media.path),'000000000.chunk');await writeFile(stray,'left behind');await r.cleanupCompletedRecordings();
  await assert.rejects(readFile(stray));assert.equal((await r.recoverableRecordings()).find(x=>x.id===open.id)?.chunks,1);await r.finishRecording(open.id);
 });

@@ -5,7 +5,7 @@ import {spawn} from 'node:child_process';
 import {UPLOAD_DIR,CACHE_DIR,atomicJSON,safeId,registerMedia} from './storage.js';
 import {probeMedia,waveform} from './media.js';
 import {captureActivity} from './capture-activity.js';
-import {isAudioRole,type AudioRole} from '../shared/types.js';
+import {isAudioRole,type AudioRole,type Media} from '../shared/types.js';
 const directory=path.join(UPLOAD_DIR,'recordings');
 const queues=new Map<string,Promise<unknown>>();
 async function serial<T>(id:string,run:()=>Promise<T>){const old=queues.get(id)||Promise.resolve();const task=old.catch(()=>{}).then(run);queues.set(id,task);try{return await task;}finally{if(queues.get(id)===task)queues.delete(id);}}
@@ -26,6 +26,9 @@ export async function chunkInput(folder:string,chunks:string[],extension:string,
  return raw;
 }
 let warming=Promise.resolve();
+/** Warms an audio take's review waveform in the background, one at a time so probes keep a free slot. */
+export function warmTakeWaveform(media:Media){if(media.kind==='audio')warming=warming.then(()=>waveform(media,CACHE_DIR)).then(()=>{},()=>{});}
+export const waveformWarmup=()=>warming;
 async function removeChunks(folder:string,files:string[]){for(const file of files)await fs.rm(path.join(folder,file),{force:true}).catch(()=>{});}
 export async function finishRecording(id:string){captureActivity.close(safeId(id));return serial(id,async()=>{
  const folder=path.join(directory,id),metadata=JSON.parse(await fs.readFile(path.join(folder,'metadata.json'),'utf8'));
@@ -37,8 +40,8 @@ export async function finishRecording(id:string){captureActivity.close(safeId(id
  const media=await probeMedia(temp,CACHE_DIR);if(!Number.isFinite(media.duration)||media.duration<=0)throw new Error('The recorded take contains no playable duration');
  await fs.rename(temp,final);media.path=final;media.name=metadata.name;if(isAudioRole(metadata.audioRole))media.audioRole=metadata.audioRole;await registerMedia(media);
  await atomicJSON(path.join(folder,'metadata.json'),{...metadata,status:'complete',media,completedAt:new Date().toISOString()});
- // Completed folders are never recovered, so chunk cleanup and the review waveform run after the response; one warm at a time leaves probe capacity free.
- void removeChunks(folder,[...chunks,'capture.webm','capture.mp4']);if(media.kind==='audio')warming=warming.then(()=>waveform(media,CACHE_DIR)).then(()=>{},()=>{});
+ // Completed folders are never recovered, so chunk cleanup and the review waveform run after the response.
+ void removeChunks(folder,[...chunks,'capture.webm','capture.mp4']);warmTakeWaveform(media);
  return media;
 });}
 /** Removes chunks left behind in completed recordings when the service stopped before cleanup finished. */
