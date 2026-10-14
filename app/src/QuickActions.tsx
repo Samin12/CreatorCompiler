@@ -1,4 +1,4 @@
-import {useEffect,useRef,useState} from 'react';
+import {memo,useEffect,useRef,useState} from 'react';
 import type {Project} from '../shared/types';
 import {projectDuration} from '../shared/types';
 import type {AutomationJob,AutomationMutation,QuickActionRequest} from '../shared/automation';
@@ -9,14 +9,14 @@ import {Check,Image,LoaderCircle,Scissors,Subtitles,Undo2,X} from './Icons';
 import {usePanelMotion} from './motion';
 import './quick-actions.css';
 const stamp=(value:number)=>`${Math.floor(Math.max(0,value)/60).toString().padStart(2,'0')}:${(Math.max(0,value)%60).toFixed(2).padStart(5,'0')}`;
-export function QuickActionButtons({jobs,onOpen}:{jobs:AutomationJob[];onOpen:(kind:QuickActionRequest['kind'])=>void}){
+export const QuickActionButtons=memo(function QuickActionButtons({jobs,onOpen}:{jobs:AutomationJob[];onOpen:(kind:QuickActionRequest['kind'])=>void}){
  return <div className="editor-quick-actions" aria-label="Quick editing actions">{(['auto-cut','visualize'] as const).map(kind=>{const job=jobs.find(job=>job.kind===kind&&!job.sceneId);const busy=job&&automationRunning(job);const Icon=kind==='auto-cut'?Scissors:Image;return <button key={kind} className="button subtle compact" onClick={()=>onOpen(kind)} aria-label={kind==='auto-cut'?'Auto-cut':'Visualize'} title={kind==='auto-cut'?'Review proposed cuts across the project':'Review visual treatments across the project'}>{busy?<LoaderCircle size={15} className="spin"/>:<Icon size={15}/>}<span>{kind==='auto-cut'?'Auto-cut':'Visualize'}</span>{job?.status==='ready'&&<span className="quick-action-dot" aria-label="Proposal ready"/>}</button>;})}</div>;
-}
-export function TranscriptionStatus({jobs,enabled,onRetry,onCancel,error}:{jobs:AutomationJob[];enabled:boolean;onRetry:()=>Promise<void>;onCancel:(job:AutomationJob)=>Promise<void>;error?:string}){
+});
+export const TranscriptionStatus=memo(function TranscriptionStatus({jobs,enabled,onRetry,onCancel,error}:{jobs:AutomationJob[];enabled:boolean;onRetry:()=>Promise<void>;onCancel:(job:AutomationJob)=>Promise<void>;error?:string}){
  const job=jobs.find(job=>job.kind==='transcription');const active=job&&automationRunning(job);const [busy,setBusy]=useState(false),[localError,setLocalError]=useState('');
  const act=async(action:()=>Promise<void>)=>{setBusy(true);setLocalError('');try{await action();}catch(e){setLocalError((e as Error).message);}finally{setBusy(false);}};
  return <div className="transcription-status" aria-label="Automatic transcription status"><div>{active?<LoaderCircle size={13} className="spin"/>:<Subtitles size={13}/>}<span role="status">{active?'Transcribing locally…':job?.status==='complete'?(job.captionCount===undefined?'Transcription complete':`${job.captionCount} captions transcribed`):job?.status==='failed'||job?.status==='conflict'?'Transcription needs attention':job?.status==='cancelled'?'Transcription cancelled':enabled?'Automatic transcription on':'Automatic transcription off'}</span>{active?<button disabled={busy} onClick={()=>void act(()=>onCancel(job))} aria-label="Cancel automatic transcription"><X size={13}/></button>:<button disabled={busy} onClick={()=>void act(onRetry)}>{busy?'Starting…':job?'Retry':'Transcribe'}</button>}</div>{active&&<progress max={1} value={job.progress} aria-label="Transcription progress"/>}{(localError||error||job?.error)&&<p role="alert">{localError||error||job?.error}</p>}{active&&<small>{job.message}</small>}</div>;
-}
+});
 export function QuickActionDialog({project,kind,sceneId,jobs,merge,flush,reload,onClose}:{sceneId?:string;project:Project;kind:QuickActionRequest['kind'];jobs:AutomationJob[];merge:(job:AutomationJob)=>void;flush:()=>Promise<Project|undefined>;reload:()=>Promise<void>;onClose:()=>void}){
  const scene=sceneId?project.scenes.find(scene=>scene.id===sceneId):undefined;
  const job=jobs.find(job=>job.kind===kind&&job.sceneId===sceneId),running=job&&automationRunning(job),ready=job?.status==='ready';
