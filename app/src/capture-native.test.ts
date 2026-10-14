@@ -70,6 +70,47 @@ function setup(options:{inventoryTimeoutMs?:number}={}) {
 }
 const tick = () => new Promise<void>(resolve => setImmediate(resolve));
 
+test('saved region resumes the exact source with a fresh one-use token and no picker', async () => {
+ const h=setup();try{
+  const selecting=h.manager.choose(h.event,{sourceId:'screen:8:0',mode:'region'});await tick();h.finish({x:.2,y:.1,width:.5,height:.6});
+  const original=await selecting;await h.response();const {token,...saved}=original;
+  const restored=await h.manager.restore(h.event,saved);
+  assert.notEqual(restored.token,token);assert.deepEqual(restored.crop,original.crop);assert.equal(h.windows.length,1);
+  const result=await h.response({audioRequested:true});assert.equal(result.video.id,saved.sourceId);assert.equal(result.audio,'loopback');assert.equal(await h.response(),null);
+ }finally{h.manager.dispose();}
+});
+test('automatic restore refuses missing or recycled sources and changed display geometry',async()=>{
+ const h=setup();try{
+  const {token,...saved}=await h.manager.choose(h.event,{sourceId:'screen:8:0',mode:'display'});
+  await assert.rejects(h.manager.restore(h.event,{...saved,label:'Different screen'}),/no longer available/);
+  h.state.displays[0]={...physical,scaleFactor:1};await assert.rejects(h.manager.restore(h.event,saved),/arrangement changed/);
+  h.state.displays[0]=physical;h.state.sources=h.state.sources.filter(source=>source.id!==saved.sourceId);await assert.rejects(h.manager.restore(h.event,saved),/no longer available/);
+  const window=await h.manager.choose(h.event,{sourceId:'window:2:0',mode:'window'});h.state.sources=h.state.sources.map(source=>source.id===window.sourceId?{...source,name:'Reused window'}:source);await assert.rejects(h.manager.restore(h.event,window),/no longer available/);assert.equal(h.windows.length,0);
+ }finally{h.manager.dispose();}
+});
+test('automatic restore never enumerates or prompts without an existing screen grant',async()=>{
+ const h=setup();try{
+  const saved=await h.manager.choose(h.event,{sourceId:'screen:8:0',mode:'display'}),count=h.calls.length;
+  for(const status of ['denied','not-determined','restricted','unknown']){h.state.screenStatus=status;await assert.rejects(h.manager.restore(h.event,saved),/existing screen recording access/);}
+  assert.equal(h.calls.length,count);assert.equal(h.windows.length,0);
+ }finally{h.manager.dispose();}
+});
+test('automatic restore ignores a late inventory after cancellation and rechecks permission',async()=>{
+ const h=setup();try{
+  const saved=await h.manager.choose(h.event,{sourceId:'screen:8:0',mode:'display'});
+  let release!:()=>void;h.state.beforeSources=()=>new Promise<void>(resolve=>{release=resolve;});
+  const pending=h.manager.restore(h.event,saved);h.manager.reset();release();assert.equal(await pending,null);assert.equal(await h.response(),null);
+  const revoked=h.manager.restore(h.event,saved);h.state.screenStatus='denied';release();await assert.rejects(revoked,/access changed/);assert.equal(h.windows.length,0);
+ }finally{h.manager.dispose();}
+});
+test('automatic restore rejects untrusted frames and malformed saved region geometry',async()=>{
+ const h=setup();try{
+  const saved=await h.manager.choose(h.event,{sourceId:'screen:8:0',mode:'display'});
+  assert.throws(()=>h.manager.restore({...h.event,senderFrame:{url:base+'/'}},saved),/Untrusted/);
+  await assert.rejects(h.manager.restore(h.event,{...saved,kind:'region',crop:{normalized:{x:.9,y:0,width:.8,height:1}}}),/region must fit/);assert.equal(h.windows.length,0);
+ }finally{h.manager.dispose();}
+});
+
 test('source enumeration failure reports actual permission status without granting access or falling back', async () => {
  const h = setup(); try {
   h.state.beforeSources = async () => { throw new Error('Failed to get sources.'); };

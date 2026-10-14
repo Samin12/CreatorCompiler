@@ -97,6 +97,14 @@ export function validateProject(value:unknown):Project{
  if(p.version!==1||typeof p.id!=='string'||typeof p.name!=='string'||!p.name.trim())throw new Error('Invalid project identity');safeId(p.id);
  if(!p.canvas||![p.canvas.width,p.canvas.height,p.canvas.fps].every(Number.isFinite)||p.canvas.width<16||p.canvas.height<16||p.canvas.width>8192||p.canvas.height>8192||p.canvas.fps<1||p.canvas.fps>120)throw new Error('Invalid canvas (16–8192 pixels, 1–120 fps)');
  for(const key of ['clips','media','scenes','captions','elements','zooms'] as const){if(!Array.isArray(p[key])||p[key].length>100000)throw new Error('Invalid '+key);}
+ const layerKinds=new Map<string,'video'|'audio'>();
+ if(p.timelineLayers!==undefined){
+  if(!Array.isArray(p.timelineLayers)||p.timelineLayers.length>2000)throw Error('Invalid timeline layers');
+  for(const layer of p.timelineLayers){
+   if(!layer||typeof layer.id!=='string'||typeof layer.name!=='string'||!layer.name.trim()||layer.name.length>200||!['video','audio'].includes(layer.kind)||!Number.isFinite(layer.order))throw Error('Invalid timeline layer');
+   safeId(layer.id);if(layerKinds.has(layer.id))throw Error('Duplicate timeline layer');layerKinds.set(layer.id,layer.kind);
+  }
+ }
  const mediaIds=new Set(p.media.map(m=>m.id));
  for(const m of p.media){safeId(m.id);if(typeof m.path!=='string'||!path.isAbsolute(m.path))throw new Error('Media paths must be absolute');if(m.audioRole!==undefined&&!isAudioRole(m.audioRole))throw new Error('Invalid media audio role');}
  for(const c of p.clips){if(!mediaIds.has(c.mediaId))throw new Error('Clip references missing media');if(![c.start,c.sourceIn,c.sourceOut,c.speed,c.gain].every(Number.isFinite)||c.start<0||c.sourceIn<0||c.sourceOut<=c.sourceIn||c.speed<.05||c.speed>16||c.gain<0||c.gain>10)throw new Error('Invalid clip timing or gain');if(c.effectTiming&&(![c.effectTiming.sourceIn,c.effectTiming.sourceOut].every(Number.isFinite)||c.effectTiming.sourceIn<0||c.effectTiming.sourceOut<=c.effectTiming.sourceIn))throw new Error('Invalid clip effect timing');}
@@ -104,7 +112,14 @@ export function validateProject(value:unknown):Project{
  for(const c of p.clips){
   if(c.audioRole!==undefined&&!isAudioRole(c.audioRole))throw new Error('Invalid clip audio role');
   if(!['screen','camera','audio','music','overlay'].includes(c.track)||!c.effects||!c.transform)throw new Error('Clip track, effects and transform are required');
+  if(c.layerId!==undefined){
+   if(typeof c.layerId!=='string')throw Error('Invalid clip layer');
+   const reserved:Record<string,'video'|'audio'>={'role:screen':'video','role:camera':'video','role:overlay':'video','role:audio':'audio','role:music':'audio'};
+   const kind=reserved[c.layerId]??layerKinds.get(c.layerId);
+   if(!kind||kind!==(c.track==='audio'||c.track==='music'?'audio':'video'))throw Error('Clip references an invalid or incompatible timeline layer');
+  }
   if(![c.transform.x,c.transform.y,c.transform.width,c.transform.height,c.transform.rotation,c.transform.opacity,c.transform.borderRadius].every(Number.isFinite)||c.transform.width<=0||c.transform.height<=0||c.transform.opacity<0||c.transform.opacity>1)throw new Error('Invalid clip transform');
+  if(c.transform.shadow!==undefined){const s=c.transform.shadow;if(!s||typeof s!=='object'||Array.isArray(s)||![s.x,s.y,s.blur].every(Number.isFinite)||Math.abs(s.x)>8192||Math.abs(s.y)>8192||s.blur<0||s.blur>1000||typeof s.color!=='string'||!/^#[0-9a-f]{8}$/i.test(s.color))throw Error('Invalid clip shadow');}
   if(![c.effects.brightness,c.effects.contrast,c.effects.saturation,c.effects.blur,c.effects.fadeIn,c.effects.fadeOut].every(Number.isFinite))throw new Error('Invalid clip effects');
  }
  for(const s of p.scenes){if(!Number.isFinite(s.start)||!Number.isFinite(s.duration)||s.start<0||s.duration<0||typeof s.script!=='string')throw new Error('Invalid scene');}

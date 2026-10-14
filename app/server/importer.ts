@@ -1,7 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { readdir, readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
-import { createProject, defaultEffects, defaultTransform, makeId, type Project, type Clip, type Media, type Caption } from '../shared/types.js';
+import { createProject, defaultEffects, defaultTransform, makeId, type Project, type Clip, type Media, type Caption, type Transform } from '../shared/types.js';
 import {cursorForTimeline,decodeCursorSidecar,type RecordedCursorPoint} from './cursor-sidecar.js';
 import {decodeBorumiScript} from './borumi-script.js';
 import {preserveBorumiDatabase,finishBorumiPreservation,type BorumiMapping} from './borumi-provenance.js';
@@ -10,6 +10,13 @@ type Row=Record<string,any>;
 const decode=(v:any,fallback:any=null):any=>{if(typeof v!=='string')return v??fallback;try{return JSON.parse(v)}catch{return fallback}};
 const numeric=(v:any,fallback=0)=>Number.isFinite(Number(v))&&v!==null?Number(v):fallback;
 const rgb=(v:any)=>v&&[v.r,v.g,v.b].every(Number.isFinite)?`#${[v.r,v.g,v.b].map((n:number)=>Math.max(0,Math.min(255,n)).toString(16).padStart(2,'0')).join('')}`:undefined;
+const nativeShadow=(value:Row|undefined,dimension:number):Transform['shadow']=>{
+ if(!value)return undefined;
+ const {x_offset_ratio:x,y_offset_ratio:y,blur_ratio:blur,color}=value;
+ const channels=color&&[color.r,color.g,color.b,color.a];
+ if(![x,y,blur].every(Number.isFinite)||blur<0||!channels?.every((n:unknown)=>typeof n==='number'&&Number.isFinite(n)&&n>=0&&n<=255))return undefined;
+ return {x:x*dimension,y:y*dimension,blur:blur*dimension,color:'#'+channels.map((n:number)=>Math.round(n).toString(16).padStart(2,'0')).join('')};
+};
 
 /** Converts an observed SQLite document without writing to the source database or media. */
 export async function importBorumi(input:string,options:{roundtripDirectory?:string}={}):Promise<Project>{
@@ -36,6 +43,7 @@ export async function importBorumi(input:string,options:{roundtripDirectory?:str
  };
  const target=decode(original.render_target,{}).mode??{};
  p.canvas.width=Math.max(1,numeric(target.width,1920));p.canvas.height=Math.max(1,numeric(target.height,1080));p.canvas.padding=0;p.canvas.radius=0;
+ const canvasDimension=Math.max(1,Math.min(p.canvas.width,p.canvas.height));
  const timeline=data.project_timeline[0]??{};const background=decode(timeline.background,{}).main_kind;
  if(background?.kind==='Color'||background?.kind==='Solid')p.canvas.background=rgb(background.color)||p.canvas.background;
  else if(background)warnings.add(`Canvas background ${background.kind} retained as source metadata; choose a new canvas background.`);
@@ -91,10 +99,10 @@ export async function importBorumi(input:string,options:{roundtripDirectory?:str
   }else if(['Music','SoundEffect'].includes(k.kind)||k.kind==='Overlay'&&k.overlay_kind?.kind==='Media'){
    const media=mediaMap.get(k.media_id??k.overlay_kind?.media_id);if(!media){warnings.add('An overlay or sound source is unavailable.');continue}
    const pos=k.position??{};const sourceIn=numeric(k.media_start??k.overlay_kind?.media_start);const visibleDuration=duration||Math.max(0,(p.scenes.find(s=>s.start<=start&&s.start+s.duration>=start)?.duration??media.duration));
-   p.clips.push({id:makeId(),mediaId:media.id,name:media.name,track:k.kind==='Overlay'?'overlay':'music',start,sourceIn,sourceOut:sourceIn+visibleDuration,speed:1,gain:Math.pow(10,numeric(k.volume_filter)/20),muted:false,transform:{...defaultTransform(),x:numeric(pos.x_ratio),y:numeric(pos.y_ratio),width:numeric(pos.width_ratio,1),height:numeric(pos.height_ratio,1),borderRadius:numeric(k.border_radius_ratio)},effects:defaultEffects()});
+   p.clips.push({id:makeId(),mediaId:media.id,name:media.name,track:k.kind==='Overlay'?'overlay':'music',start,sourceIn,sourceOut:sourceIn+visibleDuration,speed:1,gain:Math.pow(10,numeric(k.volume_filter)/20),muted:false,transform:{...defaultTransform(),x:numeric(pos.x_ratio),y:numeric(pos.y_ratio),width:numeric(pos.width_ratio,1),height:numeric(pos.height_ratio,1),borderRadius:numeric(k.border_radius_ratio)*canvasDimension,...(nativeShadow(k.shadow_style,canvasDimension)?{shadow:nativeShadow(k.shadow_style,canvasDimension)}:{})},effects:defaultEffects()});
    mapping.clips[p.clips.at(-1)!.id]={segmentId:segment.id,sceneId:segment.scene_id,kind:k.kind};
    retainTransitions(segment,k,['entrance_transition','exit_transition']);
-   if(k.shadow_style||k.stroke_style){warnings.add('Overlay shadows and stroke details require review.');unmapped.push({segmentId:segment.id,kind:k.kind,parameters:k})}
+   if(k.shadow_style&&!nativeShadow(k.shadow_style,canvasDimension)||k.stroke_style||k.corner_shape&&!['Regular','RoundedRect'].includes(k.corner_shape.kind??k.corner_shape)){warnings.add('Unsupported overlay shadow, stroke or corner shape details require review.');unmapped.push({segmentId:segment.id,kind:k.kind,parameters:k})}
   }else if(k.kind==='Overlay'&&k.overlay_kind?.kind==='Text'){
    retainTransitions(segment,k,['entrance_transition','exit_transition']);
    const pos=k.position??{};const text=k.overlay_kind.text??'';p.elements.push({id:makeId(),type:'text',start,duration,text:typeof text==='string'?text:JSON.stringify(text),x:numeric(pos.x_ratio,.1),y:numeric(pos.y_ratio,.1),width:numeric(pos.width_ratio,.8),height:numeric(pos.height_ratio,.2),color:'#ffffff',background:'transparent',fontSize:48,opacity:1,rotation:0});warnings.add('Text content imported with default style; original text style retained.');unmapped.push({segmentId:segment.id,kind:k.kind,parameters:k});
@@ -134,8 +142,8 @@ export async function importBorumi(input:string,options:{roundtripDirectory?:str
    let zIndex=role==='Camera'?100:lane;
    if(layout?.kind==='Custom'){
     const index=(layout.sources??[]).findIndex((s:Row)=>match(s.source));const s=layout.sources?.[index];
-    if(s){Object.assign(piece.transform,{x:numeric(s.x_ratio),y:numeric(s.y_ratio),width:numeric(s.width_ratio,1),height:numeric(s.height_ratio,1),fit:'cover',borderRadius:numeric(s.border_radius_ratio)*p.canvas.height});zIndex=index;
-     if(s.shadow_style||s.stroke_style||s.overflow||s.video_background_override)warnings.add('Custom layout geometry/order imported; shadow, stroke, overflow and segmentation overrides require review.');
+    if(s){Object.assign(piece.transform,{x:numeric(s.x_ratio),y:numeric(s.y_ratio),width:numeric(s.width_ratio,1),height:numeric(s.height_ratio,1),fit:'cover',borderRadius:numeric(s.border_radius_ratio)*canvasDimension,...(nativeShadow(s.shadow_style,canvasDimension)?{shadow:nativeShadow(s.shadow_style,canvasDimension)}:{})});zIndex=index;
+     if(s.shadow_style&&!nativeShadow(s.shadow_style,canvasDimension)||s.stroke_style||s.overflow||s.video_background_override||s.corner_shape&&!['Regular','RoundedRect'].includes(s.corner_shape.kind??s.corner_shape))warnings.add('Custom layout geometry/order imported; unsupported shadow, stroke, corner shape, overflow and segmentation overrides require review.');
     }else piece.transform.opacity=0;
    }else if(layout?.kind==='Fullscreen'){
     if(!match(layout.source))piece.transform.opacity=0;else piece.transform.fit=layout.fit?.kind==='Cover'?'cover':'contain';

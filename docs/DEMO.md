@@ -1,6 +1,6 @@
 # A small video, made in SceneForge
 
-[Watch or download SceneForge-demo.mp4](https://github.com/Samin12/SceneForge/releases/download/v0.1.0-preview.1/SceneForge-demo.mp4).
+[Watch or download SceneForge-demo.mp4](https://github.com/Samin12/SceneForge/releases/download/v0.1.0-preview.2/SceneForge-demo.mp4).
 
 The 12-second sample contains three independently authored pastel scenes: **Write your story.**, **Make the cut.**, and **Export with confidence.** Its source visuals are generated color video, with local macOS speech narration. It contains no private footage or proprietary editor assets.
 

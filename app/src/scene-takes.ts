@@ -1,4 +1,5 @@
 import {clipDuration,defaultEffects,defaultTransform,makeId,narrationPriority,type Clip,type Project,type RecordedTake} from '../shared/types';
+import {creatorCameraTransform,creatorScreenTransform} from '../shared/camera-style';
 export type TakeConfirmMode='replace-matching'|'keep-both'|'record-over';
 const EPS=1e-7;
 const role=(c:Clip,p:Project)=>c.track==='audio'?`audio:${c.audioRole??p.media.find(m=>m.id===c.mediaId)?.audioRole??'unknown'}`:c.track;
@@ -24,7 +25,7 @@ export function sceneTakes(p:Project,sceneId:string){return(p.recordedTakes??[])
  const clips=p.clips.filter(c=>c.recordingTakeId===t.id),active=new Set(clips.map(c=>role(c,p))),all=new Set(t.timeline?.clips.map(c=>role(c,p))??[]);
  return {...t,activeClipCount:clips.length,state:!clips.length?(t.confirmedAt||t.retained?'archived':'saved'):active.size<all.size?'partial':'active'} as RecordedTake&{activeClipCount:number;state:'saved'|'active'|'partial'|'archived'};
 });}
-function initialize(p:Project,t:RecordedTake){if(t.timeline)return;const screen=t.tracks.includes('screen');t.clipIds??=t.media.map(()=>makeId());t.timeline={duration:Math.max(...t.media.map((m,i)=>m.duration+t.offsets[i])),captions:[],clips:t.media.map((m,i)=>({id:t.clipIds![i],mediaId:m.id,name:m.name,track:t.tracks[i],...(m.audioRole?{audioRole:m.audioRole}:{}),recordingTakeId:t.id,start:t.offsets[i],sourceIn:0,sourceOut:m.duration,speed:1,gain:1,muted:false,effects:defaultEffects(),transform:screen&&t.tracks[i]==='camera'?{...defaultTransform(),x:.71,y:.66,width:.26,height:.29,borderRadius:16}:defaultTransform()}))};}
+function initialize(p:Project,t:RecordedTake){if(t.timeline)return;const composed=t.tracks.includes('screen')&&t.tracks.includes('camera');t.clipIds??=t.media.map(()=>makeId());t.timeline={duration:Math.max(...t.media.map((m,i)=>m.duration+t.offsets[i])),captions:[],clips:t.media.map((m,i)=>({id:t.clipIds![i],mediaId:m.id,name:m.name,track:t.tracks[i],...(m.audioRole?{audioRole:m.audioRole}:{}),recordingTakeId:t.id,start:t.offsets[i],sourceIn:0,sourceOut:m.duration,speed:1,gain:1,muted:false,effects:defaultEffects(),transform:composed&&t.tracks[i]==='camera'?creatorCameraTransform(p.canvas):composed&&t.tracks[i]==='screen'?creatorScreenTransform(p.canvas):defaultTransform()}))};}
 function snapshot(p:Project,sceneId:string,start:number){for(const t of p.recordedTakes??[]){if(t.sceneId!==sceneId||!t.timeline)continue;const live=p.clips.filter(c=>c.recordingTakeId===t.id),roles=new Set(t.installedRoles??live.map(c=>role(c,p)));t.timeline.clips=[...t.timeline.clips.filter(c=>!roles.has(role(c,p))),...live.map(c=>relative(c,start))];t.timeline.duration=Math.max(0,Math.max(0,...t.timeline.clips.map(c=>c.start+clipDuration(c)))-(t.timeline.start??0));}}
 function applyTake(p:Project,sceneId:string,id:string,mode:TakeConfirmMode){
  if(!['replace-matching','keep-both','record-over'].includes(mode))throw Error('Unknown take confirmation mode.');

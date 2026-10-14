@@ -14,6 +14,7 @@ const owner=(p:Project,c:Clip)=>p.scenes.find(s=>c.start>=s.start-epsilon&&c.sta
 const role=(c:Clip)=>c.track==='camera'?'Camera':'Screen';
 export function planNewBorumiProject(p:Project):NewBorumiPlan{
  const blockers=new Set<string>(),warnings=['Requires a previously imported Borumi 0.32.0 schema template. Only schema and migration records are used; no source project content or history is copied.','A separate new Borumi project is created. Native opening still requires verification.','SceneForge editor preferences, notes and preview frame rate are not part of this Borumi interchange.'];
+ if(p.timelineLayers?.length||p.clips.some(c=>c.layerId!==undefined))blockers.add('Custom timeline layers cannot be preserved by this Borumi export yet.');
  if(p.recordedTakes?.length)blockers.add('SceneForge recorded-take history cannot be preserved by this Borumi export. Keep the SceneForge project or export a video instead.');
  if(!/^#[0-9a-f]{6}$/i.test(p.canvas.background)||p.canvas.padding!==0||p.canvas.radius!==0||p.canvas.backgroundMediaId)blockers.add('New Borumi export currently requires a solid six-digit canvas color, zero canvas padding and zero canvas radius.');
  if(![p.canvas.width,p.canvas.height].every(n=>Number.isInteger(n)&&n>0&&n<=16384))blockers.add('Canvas dimensions must be integers between 1 and 16384.');
@@ -31,6 +32,7 @@ export function planNewBorumiProject(p:Project):NewBorumiPlan{
   const expected={...defaultEffects(),flipX:c.effects.flipX};if(!isDeepStrictEqual(c.effects,expected))blockers.add('Only horizontal video flip is supported for new-project clip effects.');
   if(c.effects.flipX&&!['screen','camera'].includes(c.track))blockers.add('Horizontal flip requires a video track.');
   const t=c.transform;if(![t.x,t.y,t.width,t.height,t.rotation,t.opacity,t.borderRadius].every(Number.isFinite)||t.width<=0||t.height<=0||t.rotation!==0||t.opacity!==1||t.borderRadius<0)blockers.add('Video transforms require a positive rectangle, zero rotation and full opacity.');
+  if(t.shadow)blockers.add('Clip shadows cannot be exported to a new Borumi project yet.');
   if(t.fit==='contain'&&t.borderRadius!==0)blockers.add('Contain-fit with rounded corners cannot be exported exactly yet.');
  }
  const videos=p.clips.filter(c=>['screen','camera'].includes(c.track));
@@ -89,7 +91,7 @@ export async function exportNewBorumiProject(p:Project,options:{templateProject:
    const cuts=[...new Set([scene.start,scene.start+scene.duration,...visual.flatMap(c=>[c.start,c.start+clipDuration(c)])])].sort((a,b)=>a-b);
    for(let i=0;i<cuts.length-1;i++){const start=cuts[i],duration=cuts[i+1]-start;if(duration<=epsilon)continue;const active=visual.filter(c=>c.start<=start+epsilon&&c.start+clipDuration(c)>start+epsilon),layers=active.map(c=>({c,layer:active.filter(x=>role(x)===role(c)).indexOf(c)})).sort((a,b)=>(a.c.zIndex??(a.c.track==='camera'?100:0))-(b.c.zIndex??(b.c.track==='camera'?100:0)));
     const sources=layers.map(({c,layer})=>{const t=c.transform,m=p.media.find(m=>m.id===c.mediaId)!;let {x,y,width,height}=t;if(t.fit==='contain'&&m.width&&m.height){const mediaAspect=m.width/m.height,boxAspect=width*p.canvas.width/(height*p.canvas.height);if(mediaAspect>boxAspect){const h=width*p.canvas.width/mediaAspect/p.canvas.height;y+=(height-h)/2;height=h;}else{const w=height*p.canvas.height*mediaAspect/p.canvas.width;x+=(width-w)/2;width=w;}}
-     return {source:{content_kind:{kind:role(c)},layer_index:layer},x_ratio:x,y_ratio:y,width_ratio:width,height_ratio:height,border_radius_ratio:t.borderRadius/p.canvas.height,lock_aspect_ratio:false,overflow:false,corner_shape:{kind:'Regular'},is_shadow_style_aware:true,shadow_style:null,stroke_style:null,video_background_override:null,face_tracking_mode_override:null,hide_on_cursor_overlap:null};});
+     return {source:{content_kind:{kind:role(c)},layer_index:layer},x_ratio:x,y_ratio:y,width_ratio:width,height_ratio:height,border_radius_ratio:t.borderRadius/Math.max(1,Math.min(p.canvas.width,p.canvas.height)),lock_aspect_ratio:false,overflow:false,corner_shape:{kind:'Regular'},is_shadow_style_aware:true,shadow_style:null,stroke_style:null,video_background_override:null,face_tracking_mode_override:null,hide_on_cursor_overlap:null};});
     insertSegment(sceneId,start-scene.start,duration,{kind:'Layout',layout_kind_v2:{kind:'Custom',sources},layout_kind:null,transition:{kind:'Instant'}});
    }
   }

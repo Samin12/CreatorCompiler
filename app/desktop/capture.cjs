@@ -135,6 +135,27 @@ function createCaptureManager({ BrowserWindow, desktopCapturer, screen, ipcMain,
   if (display && !sameDisplay(display, list.displays.find(d => d.id === display.id))) throw new Error('The display changed. Please choose your capture area again.');
   return arm ? store.arm(selected, frame) : { ...selected, token: randomUUID() };
  }
+ async function restore(saved, frame) {
+  if (disposed || !isTrustedFrame(frame)) throw new Error('The capture window is no longer available.');
+  // This path never opens a picker or asks macOS for a new grant. A prior
+  // source choice may be resumed only while the existing grant is valid.
+  if (screenPermission() !== 'granted') throw new Error('Screen preview needs existing screen recording access. Check Mac setup, then choose your screen.');
+  if (!saved || typeof saved !== 'object' || typeof saved.sourceId !== 'string' || saved.sourceId.length > 256 || typeof saved.label !== 'string' || saved.label.length > 2048 || !['display','window','region'].includes(saved.kind)) throw new Error('Choose a screen or window to restore its preview.');
+  cancel(); const current = epoch;
+  const fresh = () => current === epoch && !disposed && isTrustedFrame(frame);
+  let list;
+  try { list = await inventory({ afterSelection: true }); } catch (error) { if (!fresh()) return null; throw error; }
+  if (!fresh()) return null;
+  if (screenPermission() !== 'granted') throw new Error('Screen recording access changed. Check Mac setup before restoring the preview.');
+  const source = list.sources.find(source => source.id === saved.sourceId);
+  if (!source || source.label !== saved.label || (source.kind === 'window') !== (saved.kind === 'window')) throw new Error('The previously selected screen or window is no longer available. Choose a source again.');
+  if (source.kind === 'display') {
+   const display = list.displays.find(display => display.id === source.displayId);
+   if (!display || !sameDisplay({ id:saved.displayId, bounds:saved.displayBounds || {}, scaleFactor:saved.scaleFactor }, display)) throw new Error('The display arrangement changed. Choose your capture area again.');
+  }
+  const selected = buildSelection(source, list.displays, saved.kind, saved.kind === 'region' ? saved.crop?.normalized : undefined);
+  return store.arm(selected, frame);
+ }
  async function handleRequest(request, callback) {
   let done = false;
   let pending;
@@ -170,6 +191,7 @@ function createCaptureManager({ BrowserWindow, desktopCapturer, screen, ipcMain,
  return {
   async list(event) { verify(event); const { displays, sources } = await inventory(); verify(event); return { displays, sources }; },
   choose(event, options) { verify(event); return select(options, event.senderFrame, true); },
+  restore(event, saved) { verify(event); return restore(saved, event.senderFrame); },
   cancel(event, token) { verify(event); if (token !== undefined && typeof token !== 'string') throw new Error('Invalid capture token.'); cancel(token); },
   handleRequest,
   reset: () => cancel(),

@@ -1,0 +1,12 @@
+/* Layer cues sit above clips and below the sticky time ruler. */
+.timeline-row.layer-drop-target{box-shadow:inset 0 0 0 2px #3b82f6;background-color:color-mix(in srgb,var(--secondary) 86%,#3b82f6)}
+.timeline-row .layer-drop-edge{position:absolute;left:0;right:0;top:0;height:7px;pointer-events:none;border-top:1px dashed transparent}
+.timeline-dragging .timeline-row[data-layer-kind] .layer-drop-edge{border-top-color:color-mix(in srgb,var(--muted) 40%,transparent)}
+.timeline .clip-drag-preview{z-index:5;pointer-events:none;cursor:grabbing;opacity:.85;box-shadow:0 3px 9px #0003}
+.timeline-layer-guide{position:absolute;left:0;right:0;z-index:6;pointer-events:none;border:2px solid #3b82f6}
+.timeline-layer-guide.new-layer-guide{height:2px;border-width:1px;background:#3b82f6}
+.timeline-layer-guide>span{position:absolute;top:0;transform:translateY(-100%);background:#2563eb;color:white;font-size:10px;font-weight:600;padding:3px 7px;border-radius:4px 4px 0 0;white-space:nowrap}
+.timeline-layer-guide.existing-layer-guide>span{top:1px;transform:none}
+.timeline-snap-guide{position:absolute;top:28px;bottom:0;z-index:6;width:1px;background:#f97316;pointer-events:none}
+.timeline-snap-guide>span{position:absolute;left:3px;padding:2px 4px;background:#9a3412;color:#fff;border-radius:3px;font-size:10px;white-space:nowrap;font-variant-numeric:tabular-nums}
+.timeline-drag-announcement{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}

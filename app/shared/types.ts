@@ -9,11 +9,13 @@ export interface Media {
  audioRole?:AudioRole;
 }
 export interface Canvas { width:number; height:number; fps:number; background:string; backgroundMediaId?:string; padding:number; radius:number; }
-export interface Transform { x:number; y:number; width:number; height:number; rotation:number; opacity:number; fit:'contain'|'cover'; borderRadius:number; }
+export interface Transform { x:number; y:number; width:number; height:number; rotation:number; opacity:number; fit:'contain'|'cover'; borderRadius:number; shadow?:{x:number;y:number;blur:number;color:string}; }
 export interface Clip {
  id:string; mediaId:string; name:string; track:TrackKind; start:number; sourceIn:number; sourceOut:number; speed:number;
  gain:number; muted:boolean; transform:Transform;
  zIndex?:number;
+ /** Visual timeline row, separate from recording/source role. */
+ layerId?:string;
  audioRole?:AudioRole;
  /** Persistent recorded-take provenance; split clips retain this identity. */
  recordingTakeId?:string;
@@ -47,6 +49,8 @@ export interface Project {
  canvas:Canvas; scenes:Scene[]; media:Media[]; clips:Clip[]; captions:Caption[]; captionStyle:CaptionStyle;
  elements:Element[]; zooms:Zoom[]; cursor:CursorSettings; notes:string;
  recordedTakes?:RecordedTake[];
+ /** Ordered rows created by dragging clips between timeline layers. */
+ timelineLayers?:Array<{id:string;name:string;kind:'video'|'audio';order:number}>;
  settings:{previewQuality:'original'|'proxy';snap:boolean;ripple:boolean;teleprompterSpeed:number;teleprompterFontSize:number;teleprompterMirror:boolean};
  importWarnings?:string[];
  importMetadata?:{sourceApp:string;sourceVersion?:string;sourcePath?:string;unmappedSegments?:unknown[];sourceSettings?:unknown;roundtrip?:{version:1;snapshotId:string}};

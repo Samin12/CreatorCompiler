@@ -1,8 +1,12 @@
 # Preview validation
 
-Status checked October 13, 2026 for **v0.1.0-preview.1**. These are scoped source, packaged-runtime and physical checks. They do not establish complete parity, certification on every Mac or every-frame visual correctness.
+Source update for **v0.1.0-preview.2**, October 13, 2026. Prior completed checkpoints below retain their original test scope. These are scoped source, packaged-runtime and physical checks. They do not establish complete parity, certification on every Mac or every-frame visual correctness.
 
-## Completed checkpoints
+## Interaction and styling update
+
+The new source has targeted checks for vertical layer creation/movement, shared-offset dragging, magnetic edge snapping, cancellation, saved-screen preview restoration, and Creator camera framing/shadows. Actual component checks cover 37 design states, 20 timeline interactions, 21 recording-preview lifecycle cases and 14 Creator Inspector cases. Six server tests render and inspect real video pixels, validate saved layers/styles, and exercise immutable export restart and compatibility blockers. These are bounded checks; hosted CI and installed hardware acceptance remain separate release gates.
+
+## Previous completed checkpoints
 
 | Check | Verified result | Boundary |
 | --- | --- | --- |

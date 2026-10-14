@@ -4,7 +4,7 @@
 
 The target is macOS 14 or later on Apple Silicon (M1 or newer). Intel macOS, Windows and Linux desktop releases are not provided.
 
-1. Download **`SceneForge-macOS-arm64.dmg`** from the [release page](https://github.com/Samin12/SceneForge/releases/tag/v0.1.0-preview.1) and compare it with the checksum published for that release.
+1. Download **`SceneForge-macOS-arm64.dmg`** from the [release page](https://github.com/Samin12/SceneForge/releases/tag/v0.1.0-preview.2) and compare it with the checksum published for that release.
 2. Open the disk image and drag **SceneForge** onto **Applications**. Eject the disk image, then open SceneForge from Applications.
 3. This prerelease is Apple Development signed with a stable identity, but is not Apple-notarized. If macOS blocks it, read [Apple's instructions](https://support.apple.com/guide/mac-help/open-a-mac-app-from-an-unknown-developer-mh40616/mac) and decide whether you trust that release.
 4. Follow setup to enable the capture sources you want, or skip permissions and import existing media. Check your live preview and review a short export before starting important work.

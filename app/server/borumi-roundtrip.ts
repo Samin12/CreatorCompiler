@@ -28,6 +28,7 @@ function buildPlan(project:Project,source:BorumiProvenance,structural:Structural
  const change=(kind:string,id:string,fs:string[])=>{if(fs.length)changes.push({kind,id,fields:fs})};
  if(structural){for(const reason of structural.blockers)blockers.add(reason);for(const warning of structural.warnings)warnings.add(warning);changes.push(...structural.changes);}
  if(project.version!==1)blockers.add('Unsupported SceneForge project version.');
+ if(!same(project.timelineLayers??[],base.timelineLayers??[])||project.clips.some(c=>c.layerId!==base.clips.find(b=>b.id===c.id)?.layerId))blockers.add('Custom timeline layers cannot be preserved by this Borumi export yet.');
  if(project.recordedTakes?.length||!same(project.recordedTakes??[],base.recordedTakes??[]))blockers.add('SceneForge recorded-take history cannot be preserved by this Borumi export. Keep the SceneForge project or export a video instead.');
  if(project.name!==base.name)change('project',project.id,['name']);
  if(changed(project.canvas,base.canvas,['width','height']))blockers.add('Canvas changes other than width and height cannot be exported yet.');

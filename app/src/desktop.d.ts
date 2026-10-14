@@ -49,6 +49,8 @@ export interface DesktopCaptureSelection {
   sourcePixelSize: {width: number; height: number};
  };
 }
+/** Persist source geometry, never an expiring native capture token. */
+export type SavedDesktopCaptureSelection = Omit<DesktopCaptureSelection,'token'>;
 export interface DesktopRecordingHudState {
  projectName: string; script: string; cameraEnabled: boolean; mirror: boolean;
  hideMain: boolean; status: 'starting'|'recording'|'paused'|'saving'|'idle'; elapsed: number;
@@ -72,6 +74,8 @@ export interface SceneForgeDesktopBridge {
  listCaptureSources?(): Promise<{displays: DesktopCaptureDisplay[]; sources: DesktopCaptureSource[]}>;
  /** Arms one getDisplayMedia request for 60 seconds. Returns null on cancellation. */
  chooseCaptureSource?(options: {sourceId: string; mode: 'display' | 'window' | 'region'; initialRegion?: DesktopCaptureRect}): Promise<DesktopCaptureSelection | null>;
+ /** Restore only the same, still-present source when macOS already grants access. */
+ restoreCaptureSource?(selection: SavedDesktopCaptureSelection): Promise<DesktopCaptureSelection | null>;
  cancelCaptureSelection?(token?: string): Promise<void>;
  beginRecordingHud?(state: DesktopRecordingHudState): Promise<{id:string;visible:boolean}>;
  updateRecordingHud?(state: Partial<DesktopRecordingHudState>, id?:string): Promise<{visible:boolean}>;

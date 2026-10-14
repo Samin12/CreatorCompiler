@@ -10,6 +10,8 @@ import { faceCropCommands } from "./face-crop.ts";
 import type { FaceTrack } from "../shared/face-tracking.ts";
 import { filterSum } from "./filter-expression.ts";
 import { mediaCapabilityProbe } from "./media-capabilities.ts";
+import { clipCompositeOrder } from "../shared/timeline-layers.ts";
+import { clipShadow } from "../shared/clip-shadow.ts";
 import {
   clipDuration,
   clipEffectTiming,
@@ -845,8 +847,7 @@ async function executeExport(
       .map((clip, index) => ({ clip, index }))
       .sort(
         (a, b) =>
-          (a.clip.zIndex ?? order[a.clip.track]) -
-            (b.clip.zIndex ?? order[b.clip.track]) || a.index - b.index,
+          clipCompositeOrder(a.clip,p) - clipCompositeOrder(b.clip,p) || a.index - b.index,
       );
     for (const { clip: c, index: ci } of clips) {
       const m = p.media.find((m) => m.id === c.mediaId);
@@ -1112,9 +1113,22 @@ async function executeExport(
           chain += `,fade=t=out:st=${Math.max(0, d - fx.fadeOut)}:d=${Math.min(fx.fadeOut, d)}:alpha=1`;
         chain += `,setpts=PTS+${c.start}/TB[v${ci}]`;
         filters.push(chain);
+        const shadow=clipShadow(t,w/p.canvas.width);
+        let foreground=`v${ci}`;
+        if(shadow){
+          // Blur only the padded alpha plane. RGB stays the requested shadow
+          // color, avoiding black edge halos and preserving rounded corners.
+          const margin=Math.max(2,Math.ceil(shadow.blur*1.5)+2);
+          filters.push(`[v${ci}]split[foreground${ci}][shadowInput${ci}]`);
+          const blur=shadow.blur>0?`,gblur=sigma=${shadow.blur/2}:steps=2:planes=8`:'';
+          filters.push(`[shadowInput${ci}]pad=iw+${margin*2}:ih+${margin*2}:${margin}:${margin}:color=black@0,format=rgba,lutrgb=r=${shadow.r}:g=${shadow.g}:b=${shadow.b},colorchannelmixer=aa=${shadow.alpha}${blur}[shadow${ci}]`);
+          const shadowBase=`base${++layer}`;
+          filters.push(`[${base}][shadow${ci}]overlay=x=${Math.round(t.x*w+shadow.x-margin)}:y=${Math.round(t.y*h+shadow.y-margin)}:enable='gte(t,${c.start})*lt(t,${c.start+d})':eof_action=pass:repeatlast=0[${shadowBase}]`);
+          base=shadowBase;foreground=`foreground${ci}`;
+        }
         const next = `base${++layer}`;
         filters.push(
-          `[${base}][v${ci}]overlay=x=${Math.round(t.x * w)}:y=${Math.round(t.y * h)}:enable='gte(t,${c.start})*lt(t,${c.start + d})':eof_action=pass:repeatlast=0[${next}]`,
+          `[${base}][${foreground}]overlay=x=${Math.round(t.x * w)}:y=${Math.round(t.y * h)}:enable='gte(t,${c.start})*lt(t,${c.start + d})':eof_action=pass:repeatlast=0[${next}]`,
         );
         base = next;
       }

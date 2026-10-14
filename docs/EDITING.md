@@ -39,3 +39,14 @@ See [privacy](PRIVACY.md), [validation](VALIDATION.md) and [known limits](LIMITA
 In current source builds, face centering follows the largest detected face during both preview and export. It samples locally through Apple Vision at up to four times per second and interpolates crop motion between detections. Source-time tracking is preserved across clip splits, playback speed and render chunks.
 
 This is not identity recognition. Multiple people, fast movement, occlusion or weak detections can cause a subject switch, lag or centered fallback. A cold preview may show a centered crop while its tracking tile prepares. Review framing before export; exact Borumi tracking behavior is not claimed. This source change still needs acceptance in an updated desktop package.
+
+
+## Arrange layers and snap clips
+
+Drag a clip up or down onto another compatible video/audio row. Drop on the line between rows to create a layer; the highlighted row or insertion line shows the destination. A mostly vertical drag keeps its exact time. Selected clips move together and retain their offsets. Escape cancels a drag; Undo restores the move.
+
+The magnet button (N) snaps clip edges to nearby clips, scene boundaries and the playhead, with an alignment guide. Its distance follows the visible timeline width rather than rounding time to tenths. Turn the magnet off for free placement. Magnetic insertion that automatically reorders neighboring clips is not implemented.
+
+## Camera frame and shadow
+
+New screen-and-camera takes use a rounded Creator camera frame with a soft shadow. The Layout panel's **Creator** preset applies the companion screen/camera composition. Corner radius and shadow color, opacity, blur and offsets remain editable. Existing edited takes keep their saved styling. The same shadow settings are rendered in the preview and exported video.

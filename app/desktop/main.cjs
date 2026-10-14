@@ -138,6 +138,7 @@ app.whenReady().then(async()=>{
  session.defaultSession.setDisplayMediaRequestHandler((request,callback)=>captureManager.handleRequest(request,callback),{useSystemPicker:false});
  ipcMain.handle('list-capture-sources',e=>captureManager.list(e));
  ipcMain.handle('choose-capture-source',(e,options)=>captureManager.choose(e,options));
+ ipcMain.handle('restore-capture-source',(e,selection)=>captureManager.restore(e,selection));
  ipcMain.handle('cancel-capture-selection',(e,token)=>captureManager.cancel(e,token));
  recordingHud=createRecordingHud({BrowserWindow,ipcMain,screen,getMainWindow:()=>mainWindow,verifyMain:verifyDesktopSender});
  captureBorder=createCaptureBorder({BrowserWindow});

@@ -1,5 +1,6 @@
 import type {Media,Project,RecordedTake,TrackKind} from '../shared/types';
 import {clipDuration,defaultEffects,defaultTransform,makeId,projectDuration} from '../shared/types';
+import {creatorCameraTransform,creatorScreenTransform} from '../shared/camera-style';
 export type SavedTake=RecordedTake;
 export type TakeConfirmMode='replace-matching'|'keep-both'|'record-over';
 export interface ConfirmTakeOptions {destination:'record'|'edit';sceneId:string;clipIds?:string[];takeId?:string;mode?:TakeConfirmMode;}
@@ -10,7 +11,7 @@ export function persistSavedTakes(projectId:string,takes:SavedTake[]){localStora
 export const takeDuration=(media:Media[],offsets:number[])=>Math.max(0,...media.map((m,i)=>(offsets[i]||0)+m.duration));
 export function takePreviewProject(project:Project,take:SavedTake):Project {
  if(take.timeline){const offset=take.timeline.start??0;return {...project,recordedTakes:undefined,media:[...project.media,...take.media.filter(m=>!project.media.some(p=>p.id===m.id))],clips:take.timeline.clips.map(c=>({...structuredClone(c),start:c.start-offset})),scenes:[],captions:take.timeline.captions.map(c=>({...structuredClone(c),start:c.start-offset,end:c.end-offset,words:c.words?.map(w=>({...w,start:w.start-offset,end:w.end-offset}))})),elements:[],zooms:[],cursor:{...project.cursor,enabled:false,points:[]}};}
- const hasScreen=take.tracks.includes('screen');return {...project,media:take.media,scenes:[],captions:[],elements:[],zooms:[],cursor:{...project.cursor,enabled:false,points:[]},canvas:{...project.canvas,padding:0,radius:0,background:'#111111'},clips:take.media.map((media,i)=>({id:`take-${i}`,mediaId:media.id,name:media.name,track:take.tracks[i],...(media.audioRole?{audioRole:media.audioRole}:{}),start:take.offsets[i]||0,sourceIn:0,sourceOut:media.duration,speed:1,gain:1,muted:false,transform:take.tracks[i]==='camera'&&hasScreen?{...defaultTransform(),x:.71,y:.66,width:.26,height:.29,borderRadius:16}:defaultTransform(),effects:defaultEffects()}))};
+ const composed=take.tracks.includes('screen')&&take.tracks.includes('camera');return {...project,media:take.media,scenes:[],captions:[],elements:[],zooms:[],cursor:{...project.cursor,enabled:false,points:[]},canvas:{...project.canvas,padding:0,radius:0,background:'#111111'},clips:take.media.map((media,i)=>({id:`take-${i}`,mediaId:media.id,name:media.name,track:take.tracks[i],...(media.audioRole?{audioRole:media.audioRole}:{}),start:take.offsets[i]||0,sourceIn:0,sourceOut:media.duration,speed:1,gain:1,muted:false,transform:composed&&take.tracks[i]==='camera'?creatorCameraTransform(project.canvas):composed&&take.tracks[i]==='screen'?creatorScreenTransform(project.canvas):defaultTransform(),effects:defaultEffects()}))};
 }
 /** Insert after the chosen scene, preserving later timeline content and source trims. */
 function appendLegacyTake(project:Project,take:Pick<SavedTake,'media'|'tracks'|'offsets'|'sceneId'|'clipIds'>):{start:number;nextSceneId:string}{

@@ -8,7 +8,7 @@ SceneForge is an early, independently authored open-source project. It is not af
 
 ## Install
 
-Download **[SceneForge-macOS-arm64.dmg](https://github.com/Samin12/SceneForge/releases/download/v0.1.0-preview.1/SceneForge-macOS-arm64.dmg)** from the [release page](https://github.com/Samin12/SceneForge/releases/tag/v0.1.0-preview.1). Open it, drag **SceneForge** into **Applications**, eject the disk image, then open the app from Applications. A [ZIP download](https://github.com/Samin12/SceneForge/releases/download/v0.1.0-preview.1/SceneForge-macOS-arm64.zip) is also available if you prefer to move the app yourself.
+Download **[SceneForge-macOS-arm64.dmg](https://github.com/Samin12/SceneForge/releases/download/v0.1.0-preview.2/SceneForge-macOS-arm64.dmg)** from the [release page](https://github.com/Samin12/SceneForge/releases/tag/v0.1.0-preview.2). Open it, drag **SceneForge** into **Applications**, eject the disk image, then open the app from Applications. A [ZIP download](https://github.com/Samin12/SceneForge/releases/download/v0.1.0-preview.2/SceneForge-macOS-arm64.zip) is also available if you prefer to move the app yourself.
 
 This prerelease is **Apple Development signed with a stable identity, but not Apple-notarized**. macOS may block its first launch. Review the release and its checksums before deciding whether to open it; Apple documents the [Open Anyway procedure](https://support.apple.com/guide/mac-help/open-a-mac-app-from-an-unknown-developer-mh40616/mac). No paid account is required for local editing.
 
@@ -16,7 +16,7 @@ The desktop download includes FFmpeg/FFprobe, Whisper, the English `base.en` spe
 
 ## Watch a sample
 
-[Watch or download the 12-second SceneForge sample](https://github.com/Samin12/SceneForge/releases/download/v0.1.0-preview.1/SceneForge-demo.mp4). It was assembled through the installed MCP server and rendered in SceneForge, using original synthetic visuals, local narration, timed graphics and captions. [How the sample was made](docs/DEMO.md).
+[Watch or download the 12-second SceneForge sample](https://github.com/Samin12/SceneForge/releases/download/v0.1.0-preview.2/SceneForge-demo.mp4). It was assembled through the installed MCP server and rendered in SceneForge, using original synthetic visuals, local narration, timed graphics and captions. [How the sample was made](docs/DEMO.md).
 
 ## Make a video
 
@@ -30,7 +30,7 @@ Projects autosave locally. Undo/redo, saved history, and conflict detection help
 
 **Trash** restoration, **Locate media** with guarded Undo, and durable export history help recover work. Face centering follows the largest locally detected face at up to four samples per second, with interpolated crop motion in preview and export. **Restart saved export** renders a frozen project version and settings from the beginning without replacing current edits. [Recovery guide](docs/RECOVERY.md).
 
-A complete 20-minute complex-project export passed full decode and independent whole-audio checks. Sampled layout, cursor-position and corrected camera-crop checks passed; exact Borumi visuals are not identical. Camera, microphone and screen grants survived an installed A→B→A update test on one Mac without new consent prompts. Complete four-source/region recording acceptance for the final package remains open. [Validation and boundaries](docs/VALIDATION.md).
+A complete 20-minute complex-project export passed full decode and independent whole-audio checks. Sampled layout, cursor-position and corrected camera-crop checks passed; exact Borumi visuals are not identical. Camera, microphone and screen grants survived an installed A→B→A update test on one Mac without new consent prompts. The previous preview saved and fully decoded short four-source desktop and selected-region recordings; long-session microphone clarity and exact A/V synchronization remain open. [Validation and boundaries](docs/VALIDATION.md).
 
 Keyboard defaults include **A** select, **B** blade, **⌘B** split at the playhead, **S** scrubbing, **N** snapping, **Q/W** trim to the playhead, and **Space** play/pause. Bindings are configurable in Settings. See [keyboard behavior](docs/SHORTCUTS.md).
 
@@ -85,4 +85,4 @@ npm run desktop
 
 ## License
 
-The independent SceneForge implementation is [MIT licensed](LICENSE). Dependencies retain their own licenses. FFmpeg built with x264 is GPL-2.0-or-later and runs as a separate command-line program. The release includes its notices and provides the matching **[SceneForge-runtime-sources.zip](https://github.com/Samin12/SceneForge/releases/download/v0.1.0-preview.1/SceneForge-runtime-sources.zip)** beside the application download. See [third-party notices](THIRD_PARTY_NOTICES.md).
+The independent SceneForge implementation is [MIT licensed](LICENSE). Dependencies retain their own licenses. FFmpeg built with x264 is GPL-2.0-or-later and runs as a separate command-line program. The release includes its notices and provides the matching **[SceneForge-runtime-sources.zip](https://github.com/Samin12/SceneForge/releases/download/v0.1.0-preview.2/SceneForge-runtime-sources.zip)** beside the application download. See [third-party notices](THIRD_PARTY_NOTICES.md).
