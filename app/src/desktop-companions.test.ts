@@ -14,7 +14,7 @@ function harness(){
   constructor(options:any){super();this.options=options;windows.push(this)}
   isDestroyed(){return this.dead}destroy(){this.dead=true;this.emit('closed')}show(){this.visible=true;this.shown++}showInactive(){this.show()}hide(){this.visible=false;this.hidden++}focus(){this.focused++}
   setBounds(bounds:any){this.options={...this.options,...bounds}}
-  setContentProtection(v:boolean){this.protected=v}setIgnoreMouseEvents(v:boolean){this.ignored=v}setAlwaysOnTop(){}setVisibleOnAllWorkspaces(){}
+  workspaces:any[]=[];setContentProtection(v:boolean){this.protected=v}setIgnoreMouseEvents(v:boolean){this.ignored=v}setAlwaysOnTop(){}setVisibleOnAllWorkspaces(...args:any[]){this.workspaces=args}
   loadFile(file:string){this.webContents.mainFrame.url=new URL('file://'+file).href;return new Promise<void>((resolve,reject)=>{this.resolve=resolve;this.reject=reject})}
  }
  const main={dead:false,shown:0,hidden:0,focused:0,isDestroyed(){return this.dead},show(){this.shown++},hide(){this.hidden++},focus(){this.focused++},getBounds:()=>({x:-1512,y:-40,width:900,height:600}),webContents:Object.assign(new EventEmitter(),{mainFrame:{url:'http://127.0.0.1:4174/'},messages:[] as any[],send(...args:any[]){this.messages.push(args)}})};
@@ -89,4 +89,32 @@ test('selected-window bounds events move only their own border and stay hidden w
  m.update({type:'paused',id:'window'});m.update(recording('window',{type:'bounds',captureBounds:{x:-1000,y:0,width:900,height:640}}));assert.equal(w.options.x,-1000);assert.equal(w.options.width,900);assert.equal(w.visible,false);
  m.update(recording('obsolete',{type:'bounds',captureBounds:{x:42,y:0,width:600,height:400}}));assert.equal(w.options.x,-1000);m.update({type:'resumed',id:'window'});assert.equal(w.visible,true);
  m.update(recording('window',{type:'bounds',captureBounds:{x:NaN,y:0,width:600,height:400}}));assert.equal(w.options.x,-1000);
+ }finally{m.clear()}});
+
+test('HUD and border are panels that join full-screen Spaces without a Dock transform',async()=>{const h=harness(),hud=createRecordingHud(h.opts),border=createCaptureBorder(h.opts);try{
+ const {w}=await opened(h);border.update(recording('one'));const b=h.windows.at(-1);
+ for(const window of [w,b]){assert.equal(window.options.type,'panel');assert.deepEqual(window.workspaces,[true,{visibleOnFullScreen:true,skipTransformProcessType:true}]);}
+ }finally{hud.dispose();border.clear()}});
+test('HUD sends its loaded document the full state once, then only changed fields',async()=>{const h=harness(),m=createRecordingHud(h.opts);try{
+ const pending=h.call('begin-recording-hud',{projectName:'Take',script:'Line one',status:'starting',countdown:3}),w=h.windows.at(-1);h.call('update-recording-hud',{countdown:2});assert.deepEqual(w.webContents.messages,[]);
+ w.resolve();const {id}=await pending;assert.equal(w.webContents.messages.length,1);const [channel,full]=w.webContents.messages[0];assert.equal(channel,'recording-hud-state');assert.equal(full.script,'Line one');assert.equal(full.countdown,2);assert.equal(h.main.hidden,0);
+ h.call('update-recording-hud',{status:'recording',countdown:null,elapsed:1},id);assert.deepEqual(w.webContents.messages.at(-1),['recording-hud-state',{status:'recording',countdown:null,elapsed:1}]);assert.equal(h.main.hidden,1);
+ h.call('update-recording-hud',{elapsed:2},id);assert.deepEqual(w.webContents.messages.at(-1),['recording-hud-state',{elapsed:2}]);
+ assert.deepEqual(h.handlers.get('recording-hud-read')!(h.hudEvent()),{...full,status:'recording',countdown:null,elapsed:2});
+ const next=await opened(h,{projectName:'Next',status:'recording'});assert.equal(next.w.webContents.messages.length,1);assert.equal(next.w.webContents.messages[0][1].projectName,'Next');
+ }finally{m.dispose()}});
+test('HUD camera access is video-only, for the live HUD document only',async()=>{const h=harness(),m=createRecordingHud(h.opts);try{
+ const {w}=await opened(h,{status:'recording',cameraEnabled:true}),url=w.webContents.mainFrame.url,request=(extra:any={})=>({requestingUrl:url,isMainFrame:true,mediaTypes:['video'],...extra});
+ assert.equal(m.allowsCamera(w.webContents,'media',request()),true);
+ for(const [contents,permission,details] of [[w.webContents,'media',request({mediaTypes:['video','audio']})],[w.webContents,'media',request({mediaTypes:['audio']})],[w.webContents,'media',request({mediaTypes:[]})],[w.webContents,'display-capture',request()],[w.webContents,'media',request({requestingUrl:'file:///tmp/other.html'})],[w.webContents,'media',request({isMainFrame:false})],[h.main.webContents,'media',request()],[w.webContents,'media',undefined]] as const)assert.equal(m.allowsCamera(contents,permission,details),false);
+ m.end();assert.equal(m.allowsCamera(w.webContents,'media',request()),false);
+ }finally{m.dispose()}});
+test('border pre-warmed while capture starts is adopted on started, re-armed click-through and shown in place',async()=>{const h=harness(),m=createCaptureBorder(h.opts);try{
+ m.prewarm();m.prewarm();assert.equal(h.windows.length,1);const spare=h.windows[0];assert.equal(spare.visible,false);spare.resolve();await tick();assert.equal(spare.visible,false);
+ spare.ignored=false;spare.protected=false;m.update(recording('one'));assert.equal(h.windows.length,1);await tick();assert.equal(spare.visible,true);assert.equal(spare.ignored,true);assert.equal(spare.protected,true);assert.equal(spare.options.x,-1134);assert.equal(spare.options.width,756);
+ m.update({type:'stopped',id:'one'});assert.equal(spare.dead,true);
+ m.prewarm();const unused=h.windows.at(-1);m.update({type:'error',id:'never-started'});assert.equal(unused.dead,true);
+ m.prewarm();const loading=h.windows.at(-1);m.update(recording('two'));m.update({type:'paused',id:'two'});loading.resolve();await tick();assert.equal(loading.visible,false);m.update({type:'resumed',id:'two'});assert.equal(loading.visible,true);
+ m.prewarm();const last=h.windows.at(-1);m.clear();assert.equal(loading.dead,true);assert.equal(last.dead,true);
+ m.prewarm();const failed=h.windows.at(-1);failed.reject(Error('load failed'));await tick();assert.equal(failed.dead,true);m.update(recording('three'));assert.equal(h.windows.at(-1)!==failed,true);
  }finally{m.clear()}});
