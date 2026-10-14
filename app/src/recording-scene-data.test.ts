@@ -26,4 +26,6 @@ test('precomputed scene card data matches the per-scene derivation for active, a
  assert.deepEqual(data.get(first)!.all.map(t=>[t.take.id,t.number,t.active]),[['local',3,true],['a',2,true],['b',1,false]]);
  assert.deepEqual(p.scenes.map(s=>data.get(s.id)!.legacyFootage),[false,true,false]);
  assert.deepEqual(listSceneTakes(p,takes,first),data.get(first)!.all);
+ // Only clips, media and scenes are read, so the cards can memoize on those and survive unrelated project changes.
+ assert.deepEqual(sceneCardData({clips:p.clips,media:p.media,scenes:p.scenes},takes),data);
 });

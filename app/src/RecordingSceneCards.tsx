@@ -52,7 +52,7 @@ function SceneName({scene,fallback,disabled,onRename}:{scene:Scene;fallback:stri
 /** Memoized: Recording passes stable callbacks, so preview, device and status updates do not re-render every card. */
 export const RecordingSceneCards=memo(function RecordingSceneCards(props:RecordingSceneCardsProps){
  const {project,takes,disabled}=props,root=useRef<HTMLDivElement>(null),[menu,setMenu]=useState<string|null>(null),[expanded,setExpanded]=useState<Record<string,boolean>>({}),[alt,setAlt]=useState(false),[error,setError]=useState(''),[busy,setBusy]=useState(false),[drag,setDrag]=useState<DragItem|null>(null),[drop,setDrop]=useState<string|null>(null);
- const alive=useRef(true),generation=useRef(0),locked=disabled||busy,cards=useMemo(()=>sceneCardData(project,takes),[project,takes]);
+ const alive=useRef(true),generation=useRef(0),locked=disabled||busy,{clips,media,scenes}=project,cards=useMemo(()=>sceneCardData({clips,media,scenes},takes),[clips,media,scenes,takes]);
  useEffect(()=>{alive.current=true;generation.current++;setExpanded({});setMenu(null);setError('');setBusy(false);setAlt(false);setDrag(null);setDrop(null);return()=>{alive.current=false;generation.current++;};},[project.id]);
  useEffect(()=>{const key=(e:KeyboardEvent)=>{setAlt(e.altKey);if(e.key==='Escape'){setMenu(null);setDrag(null);setDrop(null);}};const blur=()=>setAlt(false);window.addEventListener('keydown',key);window.addEventListener('keyup',key);window.addEventListener('blur',blur);return()=>{window.removeEventListener('keydown',key);window.removeEventListener('keyup',key);window.removeEventListener('blur',blur);};},[]);
  useEffect(()=>{if(locked){setMenu(null);setDrag(null);setDrop(null);}},[locked]);

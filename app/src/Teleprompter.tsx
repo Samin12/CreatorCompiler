@@ -1,4 +1,4 @@
-import {useEffect,useLayoutEffect,useMemo,useRef,useState} from 'react';
+import {useEffect,useInsertionEffect,useLayoutEffect,useMemo,useRef,useState} from 'react';
 import {X,Play,Pause,RotateCcw,Mic,FlipHorizontal} from './Icons';
 import type {Project} from '../shared/types';
 import {captureSpeech} from './voice-audio';
@@ -16,7 +16,7 @@ export function Teleprompter({project,change,onClose}:{project:Project;change:(f
  // Sliders apply locally while dragging and commit to the project once per gesture (native change: release or key step).
  const [draft,setDraft]=useState<{speed?:number;fontSize?:number}>({}),draftRef=useRef(draft),speedInput=useRef<HTMLInputElement>(null),sizeInput=useRef<HTMLInputElement>(null),commitDraft=useRef(()=>{});draftRef.current=draft;
  const speed=draft.speed??savedSpeed,fontSize=draft.fontSize??savedFontSize;
- commitDraft.current=()=>{const value=draftRef.current;if(value.speed===undefined&&value.fontSize===undefined)return;draftRef.current={};setDraft({});change(p=>{if(value.speed!==undefined)p.settings.teleprompterSpeed=value.speed;if(value.fontSize!==undefined)p.settings.teleprompterFontSize=value.fontSize;},{coalesce:'teleprompter-settings'});};
+ useInsertionEffect(()=>{commitDraft.current=()=>{const value=draftRef.current;if(value.speed===undefined&&value.fontSize===undefined)return;draftRef.current={};setDraft({});change(p=>{if(value.speed!==undefined)p.settings.teleprompterSpeed=value.speed;if(value.fontSize!==undefined)p.settings.teleprompterFontSize=value.fontSize;},{coalesce:'teleprompter-settings'});};});
  useEffect(()=>{const commit=()=>commitDraft.current(),inputs=[speedInput.current,sizeInput.current];inputs.forEach(el=>el?.addEventListener('change',commit));return()=>{inputs.forEach(el=>el?.removeEventListener('change',commit));commit();};},[]);
  const stopMic=()=>{access.current?.abort();access.current=null;cancelAnimationFrame(meterFrame.current);stream.current?.getTracks().forEach(t=>t.stop());stream.current=null;void audio.current?.close().catch(()=>{});audio.current=null;voice.current=false;stopFollow.current?.();stopFollow.current=null;controller.current?.abort();inference.current=false;};
  useEffect(()=>()=>stopMic(),[]);
