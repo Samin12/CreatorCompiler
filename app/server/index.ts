@@ -98,8 +98,9 @@ app.get('/api/media/:id/face-track',route(async(req,res)=>{
  const controller=new AbortController();req.once('aborted',()=>controller.abort());res.once('close',()=>{if(!res.writableEnded)controller.abort();});
  return res.json(await getFaceTrack(await storage.readMedia(param(req)),{start,end,signal:controller.signal}));
 }));
-app.get('/api/media/:id/vision',route(async(req,res)=>{const result=await visionPreview(await storage.readMedia(param(req)),Number(req.query.time)||0,storage.CACHE_DIR);return res.json({time:result.time,width:result.width,height:result.height,face:result.face,maskUrl:`/api/media/${encodeURIComponent(param(req))}/vision-mask.png?time=${result.time}`});}));
-app.get('/api/media/:id/vision-mask.png',route(async(req,res)=>{const result=await visionPreview(await storage.readMedia(param(req)),Number(req.query.time)||0,storage.CACHE_DIR);return res.sendFile(result.maskPath);}));
+const requestSignal=(req:Request,res:Response)=>{const controller=new AbortController();req.once('aborted',()=>controller.abort());res.once('close',()=>{if(!res.writableEnded)controller.abort();});return controller.signal;};
+app.get('/api/media/:id/vision',route(async(req,res)=>{const result=await visionPreview(await storage.readMedia(param(req)),Number(req.query.time)||0,storage.CACHE_DIR,requestSignal(req,res));return res.json({time:result.time,width:result.width,height:result.height,face:result.face,maskUrl:`/api/media/${encodeURIComponent(param(req))}/vision-mask.png?time=${result.time}`});}));
+app.get('/api/media/:id/vision-mask.png',route(async(req,res)=>{const result=await visionPreview(await storage.readMedia(param(req)),Number(req.query.time)||0,storage.CACHE_DIR,requestSignal(req,res));return res.sendFile(result.maskPath);}));
 app.post('/api/media/:id/proxy',route(async(req,res)=>res.json(media.startProxy(await storage.readMedia(param(req)),storage.CACHE_DIR))));
 app.get('/api/media/:id/proxy',route(async(req,res)=>{const m=await storage.readMedia(param(req));return res.sendFile(await media.proxyFile(m,storage.CACHE_DIR)||m.path);}));
 app.post('/api/import/borumi',route(async(req,res)=>{const p=await importBorumi(req.body.path,{roundtripDirectory:path.join(storage.DATA_DIR,'borumi-snapshots')});for(const m of p.media)await storage.registerMedia(m);return res.json(await storage.saveProject(p));}));
