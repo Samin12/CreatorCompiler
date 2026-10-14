@@ -6,9 +6,7 @@ Source update for **v0.1.0-preview.3**, October 13, 2026. Prior completed checkp
 
 The combined source suite passed 467 tests: 466 passed, zero failed and one known private-portrait fixture was skipped; production builds passed. New checks cover the moving dotted canvas across 510 exported frames, range/frame inspection, 16-second loops and chunk boundaries; source-time waveforms including long/quiet/stereo media; layer controls; scene-only proposals and cross-boundary caption/zoom preservation; and timeline resizing.
 
-Actual component checks cover 21 timeline-resizer cases, 19 recording-scene action cases, 55 timeline/layer/scene/waveform cases, and 16 moving-canvas/dialog cases. The background uses a small repeated animated tile with bilinear movement, rather than regenerating the full canvas each frame. These measurements and examples do not establish general performance superiority or full native parity.
-
-The signed package of this source passed `codesign --verify --deep --strict` with the same Apple Development identity as preview 2. Its bundled server started with the packaged ffmpeg, ffprobe, whisper model, and MCP launcher. In that packaged editor, a new project opened on Moving dots; adding a video layer, removing it, and opening a scene's Auto-cut and Visualize actions worked. Timeline height, zoom, and waveform controls were present. Preview 2 was still the running single-instance app, so this check did not replace it or repeat a physical recording pass. Public download checksums are on the v0.1.0-preview.3 release.
+Actual component checks cover 21 timeline-resizer cases, 19 recording-scene action cases, 55 timeline/layer/scene/waveform cases, and 16 moving-canvas/dialog cases. The background uses a small repeated animated tile with bilinear movement, rather than regenerating the full canvas each frame. These measurements and examples do not establish general performance superiority or full native parity. Installed-package and public-download checks are separate from source/component checks.
 
 ## Interaction and styling update
 
