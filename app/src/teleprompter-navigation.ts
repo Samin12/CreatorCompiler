@@ -8,3 +8,8 @@ export function navigateScript(text:string,cursor:number,action:'previousSentenc
  if(action==='nextSentence')return (starts.find(index=>index>current)??words.length-1)+1;
  return ([...starts].reverse().find(index=>index<current)??0)+1;
 }
+/** Auto-scroll keeps a float position and writes whole device pixels: adding sub-pixel steps to scrollTop rounds slow speeds to nothing.
+ * A scrollTop that moved by more than 1 px since the last write (wheel, keys, Back to top) resyncs it. Returns the value to write, or null. */
+export function scrollAdvance(state:{pos:number;set:number},scrollTop:number,distance:number,dpr:number):number|null{
+ if(Math.abs(scrollTop-state.set)>1)state.pos=scrollTop;state.pos+=distance;const next=Math.round(state.pos*dpr)/dpr;if(next===state.set)return null;state.set=next;return next;
+}
