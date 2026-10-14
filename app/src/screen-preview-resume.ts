@@ -19,7 +19,16 @@ export function savedScreenSource(value:unknown):SavedScreenSource|null{
 }
 export function loadScreenSource():SavedScreenSource|null{try{return savedScreenSource(JSON.parse(localStorage.getItem(SAVED_SCREEN_SOURCE_KEY)||'null'));}catch{return null;}}
 export function saveScreenSource(value:SavedScreenSource|null){try{if(value)localStorage.setItem(SAVED_SCREEN_SOURCE_KEY,JSON.stringify(value));else localStorage.removeItem(SAVED_SCREEN_SOURCE_KEY);}catch{/* The active view can still use its validated selection. */}}
-export function screenCaptureRequest(source:SavedScreenSource,frameRate:number,systemAudio:boolean):CaptureRequest{return {kind:'screen',frameRate,systemAudio,sourceId:source.sourceId,...(source.crop?{crop:source.crop.normalized}:{})};}
+/** Pixels of the chosen display or region; windows carry no geometry. */
+export function screenCaptureSize(source:SavedScreenSource|null):{width:number;height:number}|null{
+ if(!source||source.kind==='window'||!source.displayBounds||!source.scaleFactor)return null;
+ return source.crop?{width:source.crop.pixels.width,height:source.crop.pixels.height}:{width:Math.round(source.displayBounds.width*source.scaleFactor),height:Math.round(source.displayBounds.height*source.scaleFactor)};
+}
+/** A preview-only stream needs about 1280×800 of the visible area at 30 fps; size is limited only where the true size is known for the badge. */
+export function screenPreviewLimits(source:SavedScreenSource):NonNullable<CaptureRequest['preview']>{
+ const crop=source.crop?.normalized;return screenCaptureSize(source)?{width:Math.round(1280/(crop?.width||1)),height:Math.round(800/(crop?.height||1)),frameRate:30}:{frameRate:30};
+}
+export function screenCaptureRequest(source:SavedScreenSource,frameRate:number,systemAudio:boolean,previewOnly=false):CaptureRequest{return {kind:'screen',frameRate,systemAudio,sourceId:source.sourceId,...(source.crop?{crop:source.crop.normalized}:{}),...(previewOnly?{preview:screenPreviewLimits(source)}:{})};}
 
 type Bridge={getMediaPermissions:()=>Promise<DesktopMediaPermissions>;restoreCaptureSource:(source:SavedScreenSource)=>Promise<DesktopCaptureSelection|null>;cancelCaptureSelection?:(token?:string)=>Promise<void>};
 /** Coalesces automatic resume triggers and discards native/browser results from
