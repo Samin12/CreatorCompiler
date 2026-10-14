@@ -31,15 +31,31 @@ export function mergeAutomaticCaptions(current:Caption[],generated:Caption[],pre
 }
 export function transcriptWords(p:Project):Word[]{return p.captions.flatMap(c=>c.words?.length?c.words:[]).sort((a,b)=>a.start-b.start).filter((w,i,a)=>!i||Math.abs(w.start-a[i-1].start)>.001||w.text!==a[i-1].text);}
 const normalized=(s:string)=>s.toLowerCase().replace(/[^\p{L}\p{N}]/gu,'');
+/** Whisper emits punctuation-only and bracketed non-speech tokens such as "[", "--" or "[BLANK_AUDIO]". */
+export const spokenWord=(w:Word)=>normalized(w.text).length>0&&!/^\s*[[(].*[\])]\s*$/.test(w.text);
+/** Parts of a quiet interval that no spoken word or untimed caption overlaps. */
+export function wordFreeIntervals(start:number,end:number,busy:Array<[number,number]>):Array<[number,number]>{
+ const out:Array<[number,number]>=[];let at=start;for(const [a,b] of busy.filter(([a,b])=>a<end&&b>start).sort((x,y)=>x[0]-y[0])){if(a>at)out.push([at,Math.min(a,end)]);at=Math.max(at,b);if(at>=end)break;}if(at<end)out.push([at,end]);return out;
+}
 export function planCuts(p:Project,silences:AISuggestion[]){
- const words=transcriptWords(p);if(!words.length)throw Error('Auto-cut needs word-timed captions. Finish local transcription first.');
- const changes:AutomationChange[]=[],operations:PlanOperation[]=[];const fps=p.canvas.fps;const protectedRange=(a:number,b:number)=>words.some(w=>w.start<b&&w.end>a)||p.captions.some(c=>!c.words?.length&&c.start<b&&c.end>a);
- for(const s of silences){if(s.start===undefined||s.end===undefined)continue;let start=Math.ceil((s.start+.16)*fps)/fps,end=Math.floor((s.end-.16)*fps)/fps;
-  if(end-start<.25||protectedRange(start,end))continue;const id='silence-'+hash([start,end]).slice(0,12);operations.push({id,kind:'cut',start,end});changes.push({id,category:'silence',start,end,label:`Shorten ${(end-start).toFixed(2)}s quiet gap`,reason:'Audio is quiet and no transcript word overlaps this cut; 160 ms margins preserve breath around it. Review intentional pauses.',selected:true});}
+ const words=transcriptWords(p).filter(spokenWord);if(!words.length)throw Error('Auto-cut needs word-timed captions. Finish local transcription first.');
+ const changes:AutomationChange[]=[],operations:PlanOperation[]=[];const fps=p.canvas.fps;const busy:Array<[number,number]>=[...words.map(w=>[w.start,w.end] as [number,number]),...p.captions.filter(c=>!c.words?.length).map(c=>[c.start,c.end] as [number,number])];
+ // Word timings drift a few hundred milliseconds from the audio, so keep the word-free part of a quiet gap rather than dropping it.
+ for(const s of silences){if(s.start===undefined||s.end===undefined)continue;for(const [a,b] of wordFreeIntervals(s.start,s.end,busy)){const start=Math.ceil((a+.16)*fps)/fps,end=Math.floor((b-.16)*fps)/fps;
+  if(end-start<.25)continue;const id='silence-'+hash([start,end]).slice(0,12);operations.push({id,kind:'cut',start,end});changes.push({id,category:'silence',start,end,label:`Shorten ${(end-start).toFixed(2)}s quiet gap`,reason:'Audio is quiet and no transcript word overlaps this cut; 160 ms margins preserve breath around it. Review intentional pauses.',selected:true});}}
  // Exact neighboring repeated phrases are candidates only. Emphasis can be intentional.
  for(let i=0;i<words.length-5;i++){let found=false;for(let n=Math.min(16,Math.floor((words.length-i)/2));n>=3;n--){const a=words.slice(i,i+n),b=words.slice(i+n,i+2*n);if(b[0].start-a.at(-1)!.end>2||a.some((w,k)=>normalized(w.text)!==normalized(b[k].text))||a.at(-1)!.end-a[0].start>12)continue;
    const start=Math.ceil(a[0].start*fps)/fps,end=Math.floor(b[0].start*fps)/fps;if(end-start<.2||operations.some(o=>o.kind==='cut'&&o.start<end&&o.end>start))continue;
    const id='repeat-'+hash([start,end]).slice(0,12);operations.push({id,kind:'cut',start,end});changes.push({id,category:'repeat',start,end,label:`Repeated phrase: “${a.map(w=>w.text).join(' ')}”`,reason:'The same adjacent words occur again. The later take is retained. This may be deliberate emphasis, so it is unchecked until you review it.',selected:false});i+=n-1;found=true;break;}if(found)continue;
+ }
+ // An abandoned sentence: the same opening words start again shortly after a trail-off or pause. The later attempt is kept.
+ const repeats=()=>operations.filter(o=>o.kind==='cut'&&!o.id.startsWith('silence-'));
+ for(let j=1;j<words.length;j++)for(let i=j-1;i>=0&&words[j].start-words[i].start<=45;i--){
+  let n=0;while(j+n<words.length&&i+n<j&&normalized(words[i+n].text)===normalized(words[j+n].text))n++;
+  if(n<4||i+n===j||words.slice(i,i+n).reduce((a,w)=>a+normalized(w.text).length,0)<12)continue;
+  const between=words.slice(i,j),abandoned=between.some(w=>/\.\.\.|…|--|—/.test(w.text))||words[j].start-words[j-1].end>=1;if(!abandoned)continue;
+  const start=Math.ceil(words[i].start*fps)/fps,end=Math.floor(words[j].start*fps)/fps;if(end-start<.5||repeats().some(o=>o.kind==='cut'&&o.start<end&&o.end>start))continue;
+  const id='restart-'+hash([start,end]).slice(0,12);operations.push({id,kind:'cut',start,end});changes.push({id,category:'repeat',start,end,label:`Restarted take: “${words.slice(j,j+Math.min(n,8)).map(w=>w.text).join(' ')}”`,reason:'The same opening words start again after a trail-off or pause, which usually means the earlier attempt was abandoned. The later attempt is retained. Review it; repetition can be deliberate.',selected:false});j+=n-1;break;
  }
  return {changes,operations,warnings:['Cuts ripple every synchronized track, captions, scenes, graphics and cursor timing together. Preview and listen to joins before applying.','Only verified quiet gaps are selected automatically. Repeated phrases and optional Claude narrative cuts need your review; meaning is not automatically certified.']};
 }
@@ -50,9 +66,10 @@ export function planVisuals(p:Project,background:Media,scope?:SceneScope){
  const scenes=p.scenes.filter(s=>s.duration>0).slice(0,100);if(!scenes.length)scenes.push({id:'timeline',name:p.name,script:'',notes:'',start:0,duration});
  const warnings=['Existing recordings are evidence sources, not independently fact-checked claims. External pages, figures and assets have not been researched or fabricated.'];
  if(p.canvas.backgroundPattern!=='moving-dots')warnings.push('The dot grid is static; this treatment does not reproduce the full reference animation workflow.');
- for(const [index,s] of scenes.entries()){const title=s.name.trim()||`Chapter ${index+1}`,id='chapter-'+s.id,end=Math.min(duration,s.start+s.duration),d=end-s.start;if(d<=0)continue;
-  const titleDuration=Math.min(1.6,d);const elements=[element(id+'-title',title,s.start,titleDuration,{x:.01,y:.3,width:.7676,height:.25,fontSize:Math.max(14,p.canvas.height*.052),background:'#1E1D1Bf2'}),element(id+'-badge',`${index+1}/${scenes.length}\n${title}`,s.start,d,{x:.7966,y:.045,width:.1843,height:.1389,fontSize:Math.max(10,p.canvas.height*.024),background:'#1E1D1B'})];
-  changes.push({id,category:'chapter',start:s.start,end,label:`Chapter ${index+1}: ${title}`,reason:'Title comes from your scene name; adds a 1.6-second panel slate and persistent chapter badge without inserting pauses.',selected:true});operations.push({id,kind:'elements',elements});
+ const position=(index:number)=>scope?.position??{index,total:scenes.length},labelY=p.captionStyle.enabled&&p.captionStyle.position==='top'?.88:.03;
+ for(const [index,s] of scenes.entries()){const {index:number,total}=position(index),title=s.name.trim()||`Chapter ${number+1}`,id='chapter-'+s.id,end=Math.min(duration,s.start+s.duration),d=end-s.start;if(d<=0)continue;
+  const titleDuration=Math.min(1.6,d);const elements=[element(id+'-title',title,s.start,titleDuration,{x:.01,y:.3,width:.7676,height:.25,fontSize:Math.max(14,p.canvas.height*.052),background:'#1E1D1Bf2'}),element(id+'-badge',`${number+1}/${total}\n${title}`,s.start,d,{x:.7966,y:.045,width:.1843,height:.1389,fontSize:Math.max(10,p.canvas.height*.024),background:'#1E1D1B'})];
+  changes.push({id,category:'chapter',start:s.start,end,label:`Chapter ${number+1}: ${title}`,reason:'Title comes from your scene name; adds a 1.6-second panel slate and persistent chapter badge without inserting pauses.',selected:true});operations.push({id,kind:'elements',elements});
   const screens=p.clips.filter(c=>c.track==='screen'&&(c.zIndex??0)>=0&&c.start<end&&c.start+clipDuration(c)>s.start).sort((a,b)=>a.start-b.start);
   if(!screens.length){warnings.push(`Needs proof at ${s.start.toFixed(2)}s: “${title}” has no screen recording. Add a real source asset or record a demonstration; no proof is invented.`);continue;}
   // A scene can begin before a split or short screen clip. Resolve the source at
@@ -60,7 +77,7 @@ export function planVisuals(p:Project,background:Media,scope?:SceneScope){
   const labelTime=s.start+titleDuration;
   const first=screens.find(c=>c.start+clipDuration(c)>labelTime)!,start=Math.max(labelTime,first?.start??end);
   if(!first)continue;const until=Math.min(end,first.start+clipDuration(first),start+3);if(until-start<.25)continue;
-  const proofId='proof-'+s.id;changes.push({id:proofId,category:'proof',start,end:until,label:`Source footage: ${first.name}`,reason:`Labels existing screen media at source ${(first.sourceIn+(start-first.start)*first.speed).toFixed(2)}s. It does not assert that every narrated claim is proven.`,selected:true});operations.push({id:proofId,kind:'elements',elements:[element(proofId,'Recorded screen · '+first.name,start,until-start,{x:.03,y:.88,width:.72,height:.065,fontSize:Math.max(10,p.canvas.height*.025),background:'#121212dd'})]});
+  const proofId='proof-'+s.id;changes.push({id:proofId,category:'proof',start,end:until,label:`Source footage: ${first.name}`,reason:`Labels existing screen media at source ${(first.sourceIn+(start-first.start)*first.speed).toFixed(2)}s. It does not assert that every narrated claim is proven.`,selected:true});operations.push({id:proofId,kind:'elements',elements:[element(proofId,'Recorded screen · '+first.name,start,until-start,{x:.03,y:labelY,width:.72,height:.065,fontSize:Math.max(10,p.canvas.height*.025),background:'#121212dd'})]});
  }
  if(p.scenes.length>100)warnings.push('First 100 chapters treated; later scenes need a separate pass.');return {changes,operations,warnings};
 }
