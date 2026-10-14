@@ -1,4 +1,4 @@
-import {useEffect,useMemo,useRef,useState,useSyncExternalStore,type RefObject} from 'react';
+import {useEffect,useInsertionEffect,useMemo,useRef,useState,useSyncExternalStore,type RefObject} from 'react';
 import {createPortal} from 'react-dom';
 import './recording.css';
 import {Camera,Mic,Monitor,Square,Pause,Play,Check,CheckCircle2,Settings2,ChevronDown,AudioLines,LoaderCircle} from './Icons';
@@ -12,9 +12,9 @@ import {addRecordingScene,deleteRecordingScene,moveRecordingScene} from './recor
 import {countdownChime,recordingCountdown} from './recording-countdown';
 import type {ShortcutAction} from './shortcuts';
 import {defaultRecordingSettings,loadRecordingPreferences,saveRecordingPreferences,saveRecordingPreset,grantedPreviewRequests,type RecordingSettings} from './recording-presets';
-import {cropCaptureStream,regionInset,type NormalizedRegion} from './capture-region';
+import {clampRegion,cropCaptureStream,regionInset,type NormalizedRegion} from './capture-region';
 import type {DesktopCaptureSelection,DesktopCaptureSource} from './desktop';
-import {RecordingClock,RecordingTransitionGate,browserRecordingSelection,nativeRecordingOutputs,nativeRecordingOutputErrors,recorderMimeType} from './recording-session';
+import {RecordingClock,RecordingTransitionGate,anchorOnStartEvent,browserRecordingSelection,nativeRecordingOutputs,nativeRecordingOutputErrors,recorderMimeType,recorderOptions} from './recording-session';
 import {RecordingHudSession} from './recording-hud-session';
 import {CapturePreviewManager,recordingSources,sameDeviceList,type CaptureKind,type CaptureRequest,type PreviewState} from './capture-preview';
 import {requestDisplayMedia,requestUserMedia} from './media-access';
@@ -26,9 +26,9 @@ type Status='idle'|'starting'|'recording'|'paused'|'saving';
 type Selection={camera:boolean;microphone:boolean;screen:boolean;systemAudio:boolean};
 
 
-/** Stable function identities for a memoized child; each call runs the latest render's handler. */
+/** Stable function identities for a memoized child; each call runs the latest committed render's handler. */
 function useStableHandlers<T extends Record<string,((...args:any[])=>any)|undefined>>(handlers:T):T{
- const latest=useRef(handlers),cache=useRef<Record<string,(...args:any[])=>any>>({});latest.current=handlers;
+ const latest=useRef(handlers),cache=useRef<Record<string,(...args:any[])=>any>>({});useInsertionEffect(()=>{latest.current=handlers;});
  const out:Record<string,unknown>={};for(const key of Object.keys(handlers))if(handlers[key])out[key]=cache.current[key]??=(...args:any[])=>latest.current[key]!(...args);
  return out as T;
 }
@@ -72,9 +72,9 @@ export function Recording({project,change,commit,onRecorded,onError,onImport,onS
  const reviewTake=allTakes.find(take=>take.id===reviewId),captureTakeMode=useRef<TakeConfirmMode>('replace-matching');
  const applyChange=async(fn:(p:Project)=>void)=>{if(commit)await commit(fn);else change(fn);};
  useEffect(()=>{if(!project.scenes.some(scene=>scene.id===recordSceneId))setRecordSceneId(project.scenes[0]?.id||'');},[project.scenes,recordSceneId]);
- // With native capture the browser screen stream is only a preview: a region is cropped by CSS object-view-box, not per frame.
+ // With native capture the browser screen stream is only a preview: a region is cropped by CSS object-view-box, not per frame. An invalid region still fails closed.
  const nativeRecording=Boolean(window.sceneForge?.startNativeRecording);
- const [manager]=useState(()=>new CapturePreviewManager({getUserMedia:constraints=>requestUserMedia(constraints??{}),getDisplayMedia:constraints=>requestDisplayMedia(constraints??{})},(raw,options,signal)=>nativeRecording?Promise.resolve({stream:raw,dispose:()=>{}}):cropCaptureStream(raw,options.crop!,options.frameRate||30,signal)));
+ const [manager]=useState(()=>new CapturePreviewManager({getUserMedia:constraints=>requestUserMedia(constraints??{}),getDisplayMedia:constraints=>requestDisplayMedia(constraints??{})},(raw,options,signal)=>nativeRecording?Promise.resolve().then(()=>{clampRegion(options.crop!);return {stream:raw,dispose:()=>{}};}):cropCaptureStream(raw,options.crop!,options.frameRate||30,signal)));
  const previews=useSyncExternalStore(manager.subscribe,manager.getSnapshot);
  const [preferences,setPreferences]=useState(loadRecordingPreferences);
  const [savedSource,setSavedSource]=useState(loadScreenSource),savedSourceRef=useRef(savedSource);savedSourceRef.current=savedSource;
@@ -82,7 +82,7 @@ export function Recording({project,change,commit,onRecorded,onError,onImport,onS
  const initial=preferences.current;
  const [selection,setSelection]=useState<Selection>(initial.selection),[status,setStatus]=useState<Status>('idle'),[elapsed,setElapsed]=useState(0),[devices,setDevices]=useState<MediaDeviceInfo[]>([]);
  const [cameraId,setCameraId]=useState(initial.cameraId),[microphoneId,setMicrophoneId]=useState(initial.microphoneId),[cameraResolution,setCameraResolution]=useState(initial.cameraResolution),[cameraFps,setCameraFps]=useState(initial.cameraFps),[screenFps,setScreenFps]=useState(initial.screenFps),[mirror,setMirror]=useState(initial.mirror),[echoCancellation,setEchoCancellation]=useState(initial.echoCancellation),[noiseSuppression,setNoiseSuppression]=useState(initial.noiseSuppression),[settings,setSettings]=useState<CaptureKind|'systemAudio'|null>(null);
- const captures=useRef<Capture[]>([]),timer=useRef<ReturnType<typeof setInterval>|null>(null),ended=useRef(false),recordingClock=useRef(new RecordingClock()),transitionGate=useRef(new RecordingTransitionGate()),mounted=useRef(true),statusRef=useRef<Status>('idle'),stopRef=useRef<()=>Promise<void>>(async()=>{});
+ const captures=useRef<Capture[]>([]),timer=useRef<ReturnType<typeof setInterval>|null>(null),ended=useRef(false),recordingClock=useRef(new RecordingClock()),transitionGate=useRef(new RecordingTransitionGate()),mounted=useRef(true),statusRef=useRef<Status>('idle'),hudFailure=useRef(''),stopRef=useRef<()=>Promise<void>>(async()=>{});
  const hudSession=useRef<RecordingHudSession|null>(null);
  const nativeSession=useRef<{id:string;recordVideo:boolean;systemAudio:boolean}|null>(null),nativeSkew=useRef(0);
  const [nativeReady,setNativeReady]=useState(false),[hasNativeFrame,setHasNativeFrame]=useState(false),[transitionBusy,setTransitionBusy]=useState(false),[captureNotice,setCaptureNotice]=useState('');
@@ -102,11 +102,12 @@ export function Recording({project,change,commit,onRecorded,onError,onImport,onS
  const report=(message:string)=>{if(mounted.current)onError(message);};
  const updateClock=()=>{if(mounted.current)setElapsed(Math.floor(recordingClock.current.elapsed(Date.now())));};
  const closeHud=()=>{const currentHud=hudSession.current;hudSession.current=null;return currentHud?.stop()??Promise.resolve();};
- /** Opens at countdown start in 'starting'; the HUD hides the editor only once recording begins. The HUD shows its own live camera. */
+ /** Opens at countdown start in 'starting'; the HUD hides the editor only once recording begins. The HUD shows its own live camera.
+  * A failure during 'starting' is held until recording begins, and dropped if the start is cancelled. */
  const openHud=(countdown:number|null)=>{
   const bridge=window.sceneForge;if(!bridge?.beginRecordingHud||!bridge.updateRecordingHud||!bridge.endRecordingHud)return;
   let id:string|undefined;let reported=false;
-  const warn=(error:unknown)=>{if(!reported&&mounted.current){reported=true;setCaptureNotice(`Floating controls are unavailable: ${(error as Error).message}. The take is still recording; use this window to stop.`);}};
+  const warn=(error:unknown)=>{if(reported||!mounted.current||(hudSession.current!==session&&!id))return;reported=true;const text=`Floating controls are unavailable: ${(error as Error).message}. The take is still recording; use this window to stop.`;if(statusRef.current==='starting')hudFailure.current=text;else setCaptureNotice(text);};
   const snapshot=manager.getSnapshot();
   const session=new RecordingHudSession({begin:async()=>{const opened=await bridge.beginRecordingHud!({projectName:project.name,script:(project.scenes.find(scene=>scene.id===captureScene.current)?.script||'').slice(0,100000),cameraEnabled:selection.camera,cameraLabel:snapshot.camera.stream?.getVideoTracks()[0]?.label||'',microphoneLabel:selection.microphone?snapshot.microphone.stream?.getAudioTracks()[0]?.label||'Microphone':'',systemAudioLabel:selection.systemAudio?chosenSource.current?.label||'System sound':'',mirror,hideMain:true,status:'starting',elapsed:0,countdown});id=opened.id;if(!opened.visible)throw new Error('The preview window did not open');},update:patch=>bridge.updateRecordingHud!(patch,id),end:()=>bridge.endRecordingHud!(id)},warn);
   hudSession.current=session;void session.start();
@@ -188,24 +189,24 @@ export function Recording({project,change,commit,onRecorded,onError,onImport,onS
   if(wantsNative&&!chosenSource.current){await resumeScreen();if(!mounted.current||statusRef.current!=='idle'||reviewRef.current)return;if(!chosenSource.current){openPicker(selection.systemAudio);report('Choose the display, window, or region before recording.');return;}}
   if(!project.scenes.some(scene=>scene.id===sceneOverride)){report('Add a scene before recording.');return;}
   const abort=new AbortController();countdownAbort.current=abort;captureScene.current=sceneOverride;captureTakeMode.current=takeMode;setRecordSceneId(sceneOverride);
-  screenResume.current.cancel();++choiceGeneration.current;setPresetOpen(false);transition('starting');ended.current=false;captures.current=[];nativeSession.current=null;nativeSkew.current=0;transitionGate.current.reset();setElapsed(0);clearNativeFrame();setCaptureNotice('');
+  screenResume.current.cancel();++choiceGeneration.current;setPresetOpen(false);transition('starting');ended.current=false;captures.current=[];nativeSession.current=null;nativeSkew.current=0;transitionGate.current.reset();setElapsed(0);clearNativeFrame();setCaptureNotice('');hudFailure.current='';
   try{
    if(wantsNative){const capability=await bridge!.getNativeRecordingStatus!();if(!capability.available||!capability.excludesSceneForge)throw new Error('Native screen capture is unavailable in this build. No screen recording was started.');}
-   const browserSelection=browserRecordingSelection(selection,wantsNative),kinds=(['screen','camera','microphone'] as const).filter(kind=>browserSelection[kind]||(kind==='screen'&&browserSelection.systemAudio));
-   // Sources open together; the first failure in source order is reported.
+   const browserSelection=browserRecordingSelection(selection,wantsNative),kinds=(['camera','microphone'] as const).filter(kind=>browserSelection[kind]);
+   // Screen resolves first, as it may only open the picker; camera and microphone then open together and the first failure in source order is reported.
+   if((browserSelection.screen||browserSelection.systemAudio)&&!await request('screen'))throw new Error(manager.getSnapshot().screen.error||'The screen preview could not start.');if(!mounted.current)return;
    const streams=await Promise.all(kinds.map(kind=>request(kind)));kinds.forEach((kind,i)=>{if(!streams[i])throw new Error(manager.getSnapshot()[kind].error||`The ${kind} preview could not start.`);});if(!mounted.current)return;
    const sources=recordingSources(manager.getSnapshot(),browserSelection);
    if(abort.signal.aborted)throw new DOMException('Start cancelled','AbortError');
+   const formats=sources.map(source=>{const video=source.stream.getVideoTracks().length>0,mimeType=recorderMimeType(video,t=>MediaRecorder.isTypeSupported(t));if(!mimeType)throw new Error('This browser does not support WebM capture. Use the SceneForge desktop app.');return {...source,video,mimeType};});
    openHud(countdownEnabled?3:null);
-   // Storage sessions are created during the countdown. A cancelled start leaves only empty sessions, which recovery ignores.
-   const prepared=Promise.all(sources.map(async source=>{const video=source.stream.getVideoTracks().length>0,mimeType=recorderMimeType(video,t=>MediaRecorder.isTypeSupported(t));if(!mimeType)throw new Error('This browser does not support WebM capture. Use the SceneForge desktop app.');const session=await api<{id:string}>('/recordings',{name:`${project.name} — ${source.track}`,mimeType,audioRole:source.audioRole});return {...source,video,mimeType,id:session.id};}));prepared.catch(()=>{});
    if(countdownEnabled){let sound:ReturnType<typeof countdownChime>|undefined;try{sound=countdownChime();}catch{setCaptureNotice('Countdown sound is unavailable. The visual countdown still runs.');}try{await recordingCountdown(abort.signal,value=>{setCountdown(value);void hudSession.current?.update({countdown:value});},()=>sound?.play());}finally{await sound?.close();if(mounted.current)setCountdown(null);void hudSession.current?.update({countdown:null});}}
    if(abort.signal.aborted)throw new DOMException('Start cancelled','AbortError');
-   const sessions=await prepared;if(!mounted.current||abort.signal.aborted)throw new DOMException('Start cancelled','AbortError');
+   // Storage sessions open together once the countdown has finished, so a cancelled start leaves no empty session behind.
+   const sessions=await Promise.all(formats.map(async source=>({...source,id:(await api<{id:string}>('/recordings',{name:`${project.name} — ${source.track}`,mimeType:source.mimeType,audioRole:source.audioRole})).id})));if(!mounted.current||abort.signal.aborted)throw new DOMException('Start cancelled','AbortError');
    for(const {stream,track,audioRole,video,mimeType,id} of sessions){
-    // One-second keyframes keep each 1 s chunk self-contained (MP4 fragments) and seeking fast.
-    const recorder=new MediaRecorder(stream,{mimeType,...(video?{videoBitsPerSecond:8_000_000,videoKeyFrameIntervalDuration:1000}:{audioBitsPerSecond:192_000})}),capture:Capture={stream,recorder,track,id,queue:Promise.resolve(),index:0,pending:0,startedAtMs:0,label:track==='camera'?`Camera (${stream.getVideoTracks()[0]?.label||'selected camera'})`:track==='screen'?`Screen (${chosenSource.current?.label||stream.getVideoTracks()[0]?.label||'selected display'})`:`${audioRole==='system'?'System Sound':'Microphone'} (${stream.getAudioTracks()[0]?.label||'selected audio source'})`};captures.current.push(capture);
-    recorder.onstart=()=>{capture.startedAtMs=Date.now();};
+    const recorder=new MediaRecorder(stream,recorderOptions(video,mimeType)),capture:Capture={stream,recorder,track,id,queue:Promise.resolve(),index:0,pending:0,startedAtMs:0,label:track==='camera'?`Camera (${stream.getVideoTracks()[0]?.label||'selected camera'})`:track==='screen'?`Screen (${chosenSource.current?.label||stream.getVideoTracks()[0]?.label||'selected display'})`:`${audioRole==='system'?'System Sound':'Microphone'} (${stream.getAudioTracks()[0]?.label||'selected audio source'})`};captures.current.push(capture);
+    recorder.onstart=()=>{if(anchorOnStartEvent(mimeType))capture.startedAtMs=Date.now();};
     recorder.ondataavailable=event=>{if(!event.data.size)return;const index=capture.index++;capture.pending+=event.data.size;capture.queue=capture.queue.then(async()=>{const result=await fetch(`/api/recordings/${capture.id}/chunks?index=${index}`,{method:'PUT',headers:{'Content-Type':'application/octet-stream'},body:event.data});if(!result.ok)throw new Error((await result.json()).error||'Recording could not be saved');}).catch(error=>{capture.failure=error;report(`Recording storage error: ${error.message}`);if(['recording','paused'].includes(statusRef.current))void stopRef.current();}).finally(()=>{capture.pending-=event.data.size;});
      if(capture.pending>64*1024*1024){capture.failure=new Error('Disk writing cannot keep up. Recording was stopped to preserve your take.');report(capture.failure.message);void stopRef.current();}
     };
@@ -215,8 +216,8 @@ export function Recording({project,change,commit,onRecorded,onError,onImport,onS
    let startedAtMs=Date.now();
    if(wantsNative){const take=await bridge!.startNativeRecording!({selection:chosenSource.current!,systemAudio:selection.systemAudio,recordVideo:selection.screen,fps:screenFps,maxDimension:1920});nativeSession.current={id:take.id,recordVideo:selection.screen,systemAudio:selection.systemAudio};startedAtMs=take.startedAtMs;if(!mounted.current||abort.signal.aborted){await bridge!.stopNativeRecording!(take.id);nativeSession.current=null;throw new DOMException('Start cancelled','AbortError');}}
    recordingClock.current.start(startedAtMs);captures.current.forEach(c=>{c.startedAtMs=Date.now();c.recorder.start(1000);});transition('recording');timer.current=setInterval(updateClock,250);
-   if(wantsNative){manager.stop('screen');setCaptureNotice('Native capture excludes SceneForge and its floating controls.');}
-  }catch(error){captures.current.forEach(c=>{if(c.recorder.state!=='inactive')c.recorder.stop();});captures.current=[];if(nativeSession.current){await bridge?.stopNativeRecording?.(nativeSession.current.id).catch(()=>{});nativeSession.current=null;}void closeHud();transition('idle');if((error as Error).name!=='AbortError')report((error as Error).message);}finally{countdownAbort.current=null;if(mounted.current)setCountdown(null);}
+   if(wantsNative)manager.stop('screen');if(hudFailure.current||wantsNative)setCaptureNotice(hudFailure.current||'Native capture excludes SceneForge and its floating controls.');hudFailure.current='';
+  }catch(error){hudFailure.current='';captures.current.forEach(c=>{if(c.recorder.state!=='inactive')c.recorder.stop();});captures.current=[];if(nativeSession.current){await bridge?.stopNativeRecording?.(nativeSession.current.id).catch(()=>{});nativeSession.current=null;}void closeHud();transition('idle');if((error as Error).name!=='AbortError')report((error as Error).message);}finally{countdownAbort.current=null;if(mounted.current)setCountdown(null);}
  }
  function pause(){
   if(!['recording','paused'].includes(statusRef.current))return;
@@ -251,10 +252,12 @@ export function Recording({project,change,commit,onRecorded,onError,onImport,onS
   }catch(error){report(`Take remains in local recording recovery storage: ${(error as Error).message}`);}finally{captures.current=[];nativeSession.current=null;manager.stopAll();clearNativeFrame();transition('idle');}
  }
  stopRef.current=stop;
- // Subscribed once; the handlers always run this render's actions. Stop in the HUD during the countdown cancels the start.
+ // Subscribed once; the handlers run the latest committed render's actions (set on commit, so a discarded render never leaks in). Stop in the HUD during the countdown cancels the start.
  const hudCommand=useRef<(command:'pause'|'resume'|'stop')=>void>(()=>{}),shortcut=useRef<(action?:ShortcutAction)=>void>(()=>{});
- hudCommand.current=command=>{if(command==='stop'){if(statusRef.current==='starting')cancelStart();else void stop();}else if(command==='pause'&&statusRef.current==='recording')pause();else if(command==='resume'&&statusRef.current==='paused')pause();};
- shortcut.current=action=>{if(action==='record')void start();else if(action==='stopRecord'&&['recording','paused'].includes(statusRef.current))void stop();else if(action==='pauseRecord')pause();else if(action==='recordingPresets'&&statusRef.current==='idle')setPresetOpen(v=>!v);};
+ useInsertionEffect(()=>{
+  hudCommand.current=command=>{if(command==='stop'){if(statusRef.current==='starting')cancelStart();else void stop();}else if(command==='pause'&&statusRef.current==='recording')pause();else if(command==='resume'&&statusRef.current==='paused')pause();};
+  shortcut.current=action=>{if(action==='record')void start();else if(action==='stopRecord'&&['recording','paused'].includes(statusRef.current))void stop();else if(action==='pauseRecord')pause();else if(action==='recordingPresets'&&statusRef.current==='idle')setPresetOpen(v=>!v);};
+ });
  useEffect(()=>window.sceneForge?.onRecordingHudCommand?.(command=>hudCommand.current(command)),[]);
  useEffect(()=>{const handle=(event:Event)=>shortcut.current((event as CustomEvent<{action:ShortcutAction}>).detail?.action);window.addEventListener('sceneforge-shortcut',handle);return()=>window.removeEventListener('sceneforge-shortcut',handle);},[]);
  const clock=`${String(Math.floor(elapsed/60)).padStart(2,'0')}:${String(elapsed%60).padStart(2,'0')}`;
@@ -275,7 +278,8 @@ export function Recording({project,change,commit,onRecorded,onError,onImport,onS
   onMoveScene:(id:string,beforeId?:string)=>applyChange(draft=>moveRecordingScene(draft,id,beforeId)),
   onMoveTake:(id:string,sceneId:string,archive:boolean)=>runTakeAction(async()=>{const take=allTakes.find(value=>value.id===id);if(!take)return;await applyChange(draft=>{saveProjectTake(draft,take);moveSceneTake(draft,id,sceneId,archive);});storeTakes(savedTakes.filter(value=>value.id!==id));})});
  // A preview-only screen stream is reduced in size: the badge reports the source's own pixels and a region is cropped by CSS.
- const screenView=useMemo(()=>{try{const request=JSON.parse(previews.screen.key||'{}') as CaptureRequest;return {viewBox:nativeRecording&&request.crop?regionInset(request.crop):undefined,size:request.preview?.width&&sourceInfo?.sourceId===request.sourceId?screenCaptureSize(sourceInfo):null};}catch{return {viewBox:undefined,size:null};}},[previews.screen.key,sourceInfo,nativeRecording]);
+ // The native-mode preview is the whole source, so an unusable region hides it rather than showing the full screen.
+ const screenView=useMemo(()=>{const screen=previews.screen;let request:CaptureRequest;try{request=JSON.parse(screen.key||'{}');}catch{return {source:screen,viewBox:undefined,size:null};}const size=request.preview?.width&&sourceInfo?.sourceId===request.sourceId?screenCaptureSize(sourceInfo):null;if(!nativeRecording||!request.crop)return {source:screen,viewBox:undefined,size};try{return {source:screen,viewBox:regionInset(request.crop),size};}catch(error){return {source:{...screen,status:'error' as const,stream:null,error:(error as Error).message},viewBox:undefined,size:null};}},[previews.screen,sourceInfo,nativeRecording]);
  const presetPicker=<div className="recording-presets" ref={presetRoot}><button className="recording-presets-trigger" aria-label="Recording presets" aria-expanded={presetOpen} disabled={active} title="Recording presets (⌘⇧P)" onClick={()=>setPresetOpen(v=>!v)}>{activePreset?activePreset.name:'Recording presets'}{modified?' · Modified':''}<ChevronDown size={13}/></button>{presetOpen&&<div className="recording-presets-menu" role="dialog" aria-label="Recording presets"><strong>Recording presets</strong><span className="preset-description">Save devices, source toggles, and capture settings in this profile.</span><div className="recording-presets-list"><button onClick={()=>applySettings(defaultRecordingSettings(),null)}>Default settings</button>{preferences.presets.map(p=><button key={p.id} aria-pressed={preferences.activeId===p.id} onClick={()=>applySettings(p.settings,p.id)}><span>{p.name}</span>{preferences.activeId===p.id&&<Check size={15}/>}</button>)}</div><form onSubmit={e=>{e.preventDefault();savePreset();}}><label>Preset name<input aria-label="Preset name" maxLength={80} value={presetName} placeholder={activePreset?.name||'e.g. Camera and desktop'} onChange={e=>setPresetName(e.target.value)}/></label><div className="preset-actions"><button className="button compact" type="submit" disabled={!presetName.trim()}>Save as new</button>{activePreset&&<button className="button compact" type="button" disabled={!presetName.trim()} onClick={()=>savePreset(true)}>Rename</button>}</div></form>{activePreset&&<div className="preset-actions"><button onClick={()=>{setPreferences(p=>({...p,presets:saveRecordingPreset(p.presets,activePreset.name,current,activePreset.id)}));setPresetError('');}}>Update saved settings</button><button onClick={()=>{setPreferences(p=>({...p,activeId:null,presets:p.presets.filter(item=>item.id!==activePreset.id)}));setPresetError('');}}>Delete preset</button></div>}<small>Applying a preset stops current previews. Allowed camera and mic reopen. A saved screen resumes when its capture area still matches; choose a source when needed.</small>{presetError&&<p role="alert">{presetError}</p>}</div>}</div>;
  return <div className="recording-workspace">
   {presetHost?createPortal(presetPicker,presetHost):<div className="recording-presets-fallback">{presetPicker}</div>}
@@ -291,11 +295,11 @@ export function Recording({project,change,commit,onRecorded,onError,onImport,onS
    <section className={`capture-source ${selection.screen?'enabled':''}`}><header><SourceSwitch label="Screen" value={selection.screen} disabled={active} onChange={v=>toggleSource('screen',v)}/><strong>Screen</strong><button className="capture-screen-choice" disabled={active} onClick={()=>chooseScreen()}><span>{sourceInfo?.label||previews.screen.stream?.getVideoTracks()[0]?.label||'Choose a screen'}</span><ChevronDown size={13}/></button>{settingsButton('screen','Screen')}</header>
     {(selection.screen||sourcePicker)&&<div className="capture-area-controls"><label>Capture area<select aria-label="Capture area" value={captureMode} disabled={active||sourceBusy} onChange={e=>changeCaptureMode(e.target.value as RecordingSettings['captureMode'])}><option value="display">Entire display</option><option value="window">Application window</option><option value="region">Selected region</option></select></label>{captureMode==='region'&&<><p>Move or resize the selection on the chosen display. Only that area appears in preview and recording.</p>{sourceInfo?.crop&&<button className="capture-inline-action" disabled={active||sourceBusy} onClick={()=>{pickerAudio.current=selection.systemAudio;void captureSelected(sourceInfo.sourceId);}}>Move or resize region…</button>}</>}</div>}
     {settings==='screen'&&<div className="capture-settings"><label>Frame rate<select value={screenFps} onChange={e=>{const frameRate=+e.target.value;setScreenFps(frameRate);if(selection.screen||selection.systemAudio)void request('screen',{frameRate});}}><option value={30}>30 fps</option><option value={60}>60 fps</option></select></label><button className="button compact" onClick={()=>chooseScreen()}>Choose another screen or window</button><small>Select any available display or window. Stop recording before changing its area or settings.</small></div>}
-    {selection.screen&&<VideoPreview source={previews.screen} label="Screen" frameRef={nativeFrame} hasFrame={hasNativeFrame} viewBox={screenView.viewBox} captureSize={screenView.size} onEnable={()=>void request('screen')}/>}
+    {selection.screen&&<VideoPreview source={screenView.source} label="Screen" frameRef={nativeFrame} hasFrame={hasNativeFrame} viewBox={screenView.viewBox} captureSize={screenView.size} onEnable={()=>void request('screen')}/>}
    </section>
    <section className={`capture-source ${selection.systemAudio?'enabled':''}`}><header><SourceSwitch label="System Sound" value={selection.systemAudio} disabled={active} onChange={toggleSystemAudio}/><strong>System Sound</strong><button className="capture-system-label" disabled={active} onClick={()=>chooseScreen(true,false)}><AudioLines size={14}/><span>{sourceInfo?.label||previews.screen.stream?.getVideoTracks()[0]?.label||'Choose source'}</span><ChevronDown size={13}/></button>{settingsButton('systemAudio','System sound')}</header>
     {settings==='systemAudio'&&<div className="capture-settings"><p>System sound comes from the selected sharing source when supported by macOS. With Screen off, only audio is recorded; shared video is used for source selection and preview. Per-application audio selection depends on the system picker.</p><button className="button compact" onClick={()=>chooseScreen(true,false)}>Choose source with sound</button></div>}
-    {selection.systemAudio&&!selection.screen&&<><p className="capture-audio-only">Audio only · shared video is not recorded.</p>{settings==='systemAudio'&&<VideoPreview source={previews.screen} label="Sound source" viewBox={screenView.viewBox} captureSize={screenView.size} onEnable={()=>chooseScreen(true,false)}/>}</>}
+    {selection.systemAudio&&!selection.screen&&<><p className="capture-audio-only">Audio only · shared video is not recorded.</p>{settings==='systemAudio'&&<VideoPreview source={screenView.source} label="Sound source" viewBox={screenView.viewBox} captureSize={screenView.size} onEnable={()=>chooseScreen(true,false)}/>}</>}
     {selection.systemAudio&&nativeSession.current?<p className="capture-source-hint">System sound is captured as a separate native audio track. Its live meter is unavailable during this take.</p>:selection.systemAudio&&<AudioMeter stream={previews.screen.stream} label="System sound" audio={meterAudio} live={visible} emptyHint={previews.screen.status==='loading'?'Waiting for screen selection…':'No system audio track is available from this source.'}/>}
    </section>
    {sourceError&&!sourcePicker&&<div className="capture-source-error" role="alert"><p>{sourceError}</p><button className="button compact" type="button" onClick={()=>chooseScreen()}>Choose a screen or window</button>{onSetup&&<button className="button compact" type="button" onClick={onSetup}>Open Mac setup</button>}</div>}

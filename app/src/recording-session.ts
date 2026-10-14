@@ -14,6 +14,12 @@ export class RecordingClock {
 export function recorderMimeType(video:boolean,supported:(type:string)=>boolean):string|undefined{
  return (video?['video/mp4;codecs=avc1.640028','video/mp4;codecs=avc1','video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm']:['audio/webm;codecs=opus','audio/webm']).find(supported);
 }
+/** MP4 needs one-second keyframes so every 1 s timeslice carries a fragment; WebM keeps the encoder's default GOP. */
+export function recorderOptions(video:boolean,mimeType:string):MediaRecorderOptions&{videoKeyFrameIntervalDuration?:number}{
+ return video?{mimeType,videoBitsPerSecond:8_000_000,...(mimeType.startsWith('video/mp4')?{videoKeyFrameIntervalDuration:1000}:{})}:{mimeType,audioBitsPerSecond:192_000};
+}
+/** Chromium's MP4 recorder fires 'start' only once its hardware encoder is up (40-120 ms later), yet its first sample is the frame current at start(): its offset stays anchored at the start() call. WebM fires 'start' at once and keeps that anchor. */
+export const anchorOnStartEvent=(mimeType:string)=>!mimeType.startsWith('video/mp4');
 /** Browser screen/audio must never duplicate a native capture of the same source. */
 export function browserRecordingSelection<T extends {screen:boolean;systemAudio:boolean}>(selection:T,native:boolean):T {
  return native?{...selection,screen:false,systemAudio:false}:{...selection};
