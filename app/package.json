@@ -12,6 +12,7 @@
     "start": "tsx server/index.ts",
     "test": "tsx --test server/*.test.ts src/*.test.ts scripts/*.test.mjs",
     "desktop": "electron desktop/main.cjs",
+    "desktop:app": "node scripts/dev-app.mjs --open",
     "mcp": "tsx server/mcp.ts",
     "build:server": "node scripts/bundle-server.mjs",
     "build:all": "npm run build && npm run build:server",
@@ -44,5 +45,9 @@
     "typescript": "latest",
     "vite": "latest"
   },
-  "main": "desktop/main.cjs"
+  "main": "desktop/main.cjs",
+  "allowScripts": {
+    "esbuild@0.28.2": true,
+    "fsevents@2.3.3": true
+  }
 }
