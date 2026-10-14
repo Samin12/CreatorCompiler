@@ -35,9 +35,15 @@ export function createAutomationEngine(overrides:Partial<Dependencies>={}){
  async function getSettings():Promise<AutomationSettings>{const value=await json<Partial<AutomationSettings>>(path.join(d.root,'settings.json'),{});return {automaticTranscription:value.automaticTranscription!==false};}
  async function updateSettings(value:unknown){if(!value||typeof value!=='object'||typeof (value as any).automaticTranscription!=='boolean')throw Error('automaticTranscription must be true or false.');const settings={automaticTranscription:(value as AutomationSettings).automaticTranscription};await write(path.join(d.root,'settings.json'),settings);if(!settings.automaticTranscription){for(const timer of timers.values())clearTimeout(timer);timers.clear();for(const r of records.values())if(r.job.automatic&&active(r.job))await cancel(r.job.id);}else for(const id of observedProjects)void d.read(id).then(observe).catch(()=>{});return settings;}
  async function localSettings(){const s=await d.settings();return {provider:'local',baseUrl:'',model:s.provider==='local'?s.model:process.env.SCENEFORGE_DEFAULT_MODEL||process.env.SCENEFORGE_WHISPER_MODEL||'',language:s.language||'auto',localCommand:s.provider==='local'?s.localCommand:undefined} satisfies AISettings;}
+ /** Local first, always. Only when this Mac has no local engine, the person started this transcription themselves, and they saved a cloud key
+  * does a job use that provider. Automatic jobs never leave the Mac. */
+ async function cloudFallback(error:unknown,automatic:boolean):Promise<AISettings|undefined>{
+  if(automatic||!/ggml|SCENEFORGE_WHISPER_MODEL|whisper model file is missing|whisper-cli is not installed/i.test((error as Error)?.message??''))return undefined;
+  const saved=await d.settings();return saved.provider!=='local'&&saved.apiKey?saved:undefined;
+ }
  async function sourceCaptions(media:Media,settings:AISettings,signal:AbortSignal,progress:(n:number)=>void,background=false){
   signal.throwIfAborted();const info=await fs.stat(media.path);const model=settings.model?await fs.stat(settings.model).catch(()=>undefined):undefined;
-  const key=hash({version:2,path:media.path,size:info.size,mtime:info.mtimeMs,model:settings.model,modelSize:model?.size,modelMtime:model?.mtimeMs,language:settings.language,command:settings.localCommand});
+  const key=hash({version:2,path:media.path,size:info.size,mtime:info.mtimeMs,model:settings.model,modelSize:model?.size,modelMtime:model?.mtimeMs,language:settings.language,command:settings.localCommand,...(settings.provider==='local'?{}:{provider:settings.provider})});
   const file=path.join(d.cache,'automatic-transcripts',key+'.json'),cached=await json<{captions:Caption[]}|undefined>(file,undefined);if(cached){progress(1);return cached.captions;}
   // Automatic jobs never start a local model while a capture is open, and a running one is suspended when a capture starts.
   if(background)await d.capture.idle(signal);
@@ -46,8 +52,11 @@ export function createAutomationEngine(overrides:Partial<Dependencies>={}){
  async function transcribeIntoProject(r:RecordState,signal:AbortSignal,scopeId?:string){
   const before=await d.read(r.job.projectId),scope=scopeId?sceneScope(before,scopeId):undefined,signature=speechSignature(before),target=scope?scenePlanningProject(before,scope):before,windows=narrationWindows(target);if(!windows.length)throw Error('Add an audible narration, camera or screen clip to transcribe.');
   const ids=[...new Set(windows.map(w=>w.clip.mediaId))],sources=new Map<string,Caption[]>(),settings=await localSettings();r.signature=signature;
-  for(const [i,id] of ids.entries()){signal.throwIfAborted();const media=before.media.find(m=>m.id===id)!;r.job.message=`Transcribing locally: ${media.name} (${i+1}/${ids.length})`;await touch(r);
-   sources.set(id,await sourceCaptions(media,settings,signal,n=>{r.job.progress=(i+n)/ids.length*.9;},r.job.automatic===true));
+  for(const [i,id] of ids.entries()){signal.throwIfAborted();const media=before.media.find(m=>m.id===id)!,background=r.job.automatic===true,progress=(n:number)=>{r.job.progress=(i+n)/ids.length*.9;};r.job.message=`Transcribing locally: ${media.name} (${i+1}/${ids.length})`;await touch(r);
+   try{sources.set(id,await sourceCaptions(media,settings,signal,progress,background));}
+   catch(error){const cloud=await cloudFallback(error,background);if(!cloud)throw error;
+    r.job.message=`Transcribing in the cloud with ${cloud.provider}: ${media.name} (${i+1}/${ids.length})`;await touch(r);
+    sources.set(id,await sourceCaptions(media,cloud,signal,progress,background));}
   }
   signal.throwIfAborted();const latest=await d.read(before.id);if(speechSignature(latest)!==signature)throw Object.assign(Error('Timeline changed while transcribing. Retry to map the cached transcript to the new edit.'),{status:409});
   const previous=await json<CaptionState>(captionPath(before.id),{signature:'',generated:[]}),mapped=mapSourceCaptions(scope?scenePlanningProject(latest,sceneScope(latest,scope.id)):latest,sources);

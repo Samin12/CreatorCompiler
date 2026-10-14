@@ -27,7 +27,7 @@ async function run(command:string,args:string[],timeout=30*60*1000,signal?:Abort
  const cleanup=()=>{clearTimeout(timer);if(killTimer)clearTimeout(killTimer);signal?.removeEventListener('abort',abort);holding.abort();};
  child.stdout.on('data',d=>{stdout=(stdout+d).slice(-8_000_000)});child.stderr.on('data',d=>{stderr=(stderr+d).slice(-8_000_000)});child.on('error',e=>{cleanup();reject(e)});child.on('close',code=>{cleanup();failure?reject(failure):code===0?resolve({stdout,stderr}):reject(new Error(`${path.basename(command)} failed (${code}): ${stderr.slice(-1200)}`))})})
 }
-export async function transcriptionCapabilities(){const command=await executable('whisper-cli');return {local:!!command,command,providers:['local','openai','openai-compatible','elevenlabs']}}
+export async function transcriptionCapabilities(){const command=await executable('whisper-cli');return {local:!!command,command,providers:['local','openai','openai-compatible','elevenlabs','openrouter']}}
 type Word={text:string;start:number;end:number};
 export function captionsFromWords(words:Word[],maxWords=7):Caption[]{
  const clean=words.filter(w=>w.text.trim()&&Number.isFinite(w.start)&&Number.isFinite(w.end)&&w.end>w.start).sort((a,b)=>a.start-b.start);const captions:Caption[]=[];let group:Word[]=[];
@@ -53,12 +53,27 @@ export function parseTranscription(data:any):Caption[]{
  if(Array.isArray(data.segments))return data.segments.map((s:any)=>({id:makeId(),start:Number(s.start),end:Number(s.end),text:String(s.text??'').trim()})).filter((c:Caption)=>c.text&&Number.isFinite(c.start)&&c.end>c.start);
  throw new Error('The provider returned no timed transcript. Select a transcription model supporting word or segment timestamps.');
 }
-function providerUrl(settings:AISettings,route:string):string{
- let base=settings.baseUrl?.trim()||(settings.provider==='elevenlabs'?'https://api.elevenlabs.io/v1':'https://api.openai.com/v1');
- if(settings.provider==='elevenlabs'&&/^https:\/\/api\.openai\.com\/v1\/?$/.test(base))base='https://api.elevenlabs.io/v1';
- if(settings.provider==='openai'&&/^https:\/\/api\.elevenlabs\.io\/v1\/?$/.test(base))base='https://api.openai.com/v1';
+export const OPENROUTER_STT_MODEL='google/gemini-3.5-transcribe';
+const PRESET_BASES:Record<string,string>={openai:'https://api.openai.com/v1',elevenlabs:'https://api.elevenlabs.io/v1',openrouter:'https://openrouter.ai/api/v1'};
+export function providerUrl(settings:AISettings,route:string):string{
+ let base=settings.baseUrl?.trim()||PRESET_BASES[settings.provider]||PRESET_BASES.openai;
+ // Switching provider can leave another preset's URL behind; a preset provider always talks to its own endpoint.
+ const own=PRESET_BASES[settings.provider];
+ if(own&&Object.values(PRESET_BASES).some(url=>url!==own&&base.replace(/\/$/,'')===url))base=own;
  const url=new URL(base.replace(/\/$/,'')+route);
  if(url.protocol!=='https:'&&!(url.protocol==='http:'&&['localhost','127.0.0.1','[::1]'].includes(url.hostname)))throw new Error('Provider URL must use HTTPS or local HTTP.');return url.href;
+}
+/** The provider's own words help a person fix a bad key, an empty balance or an unsuitable model; the generic text covers everyone else. */
+export function describeProviderFailure(provider:string,status:number,body:string):string{
+ const generic=`Transcription provider returned HTTP ${status}. Check the API key, transcription model, and provider limits.`;
+ if(provider!=='openrouter')return generic;
+ let detail='';try{const parsed=JSON.parse(body);detail=String(parsed?.error?.message??parsed?.message??'').trim();}catch{/* Not JSON: say nothing rather than echo an unknown body. */}
+ detail=detail.replace(/\s+/g,' ').slice(0,240);
+ if(status===401)return 'OpenRouter rejected the API key. Check it in Settings → AI & transcription.';
+ if(status===402)return 'Your OpenRouter account has no credits left for this request. Add credits at openrouter.ai, then try again.';
+ if(status===429)return 'OpenRouter is rate limiting this key. Wait a minute, then try again.';
+ if(status===400)return `OpenRouter could not run this transcription${detail?`: ${detail}`:'.'} If it mentions timestamps, choose a model that returns them, for example openai/whisper-large-v3.`;
+ return detail?`OpenRouter returned HTTP ${status}: ${detail}`:generic;
 }
 /** Returns source-media times. The caller maps these through each timeline clip. */
 /** `background` runs automatic work at background QoS with fewer threads, suspended while `hold` is active; `prepared` marks a validated mono 16 kHz PCM16 WAV that needs no conversion. */
@@ -87,9 +102,11 @@ export async function transcribe(media:Media,settings:AISettings,workDir:string,
   const form=new FormData();form.append('file',new Blob([data]),'audio.wav');const headers:Record<string,string>={};
   let route='/audio/transcriptions';
   if(settings.provider==='elevenlabs'){route='/speech-to-text';headers['xi-api-key']=settings.apiKey!;form.append('model_id',settings.model||'scribe_v2');form.append('timestamps_granularity','word');form.append('tag_audio_events','false');if(settings.language&&settings.language!=='auto')form.append('language_code',settings.language)}
-  else{if(settings.apiKey)headers.Authorization=`Bearer ${settings.apiKey}`;form.append('model',settings.model||'whisper-1');form.append('response_format','verbose_json');form.append('timestamp_granularities[]','word');if(settings.language&&settings.language!=='auto')form.append('language',settings.language)}
+  else{if(settings.apiKey)headers.Authorization=`Bearer ${settings.apiKey}`;form.append('model',settings.model||(settings.provider==='openrouter'?OPENROUTER_STT_MODEL:'whisper-1'));form.append('response_format','verbose_json');
+   // OpenRouter routes to many providers: ask for segments too, so a model without word timing still yields a usable timed transcript.
+   if(settings.provider==='openrouter')form.append('timestamp_granularities[]','segment');form.append('timestamp_granularities[]','word');if(settings.language&&settings.language!=='auto')form.append('language',settings.language)}
   const response=await fetch(providerUrl(settings,route),{method:'POST',headers,body:form,signal:options.signal?AbortSignal.any([options.signal,AbortSignal.timeout(600_000)]):AbortSignal.timeout(600_000)});
-  if(!response.ok)throw new Error(`Transcription provider returned HTTP ${response.status}. Check the API key, transcription model, and provider limits.`);
+  if(!response.ok)throw new Error(describeProviderFailure(settings.provider,response.status,await response.text().catch(()=>'')));
   return {captions:parseTranscription(await response.json()),provider:settings.provider};
  }finally{await rm(dir,{recursive:true,force:true})}
 }

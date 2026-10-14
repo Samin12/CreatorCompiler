@@ -126,7 +126,7 @@ export async function registerMedia(media:Media){safeId(media.id);if(media.audio
 export async function readMedia(id:string):Promise<Media>{return JSON.parse(await fs.readFile(path.join(MEDIA_DIR,safeId(id)+'.json'),'utf8'));}
 export const defaultAISettings:AISettings={provider:'local',baseUrl:'https://api.openai.com/v1',model:process.env.SCENEFORGE_DEFAULT_MODEL||'',language:process.env.SCENEFORGE_DEFAULT_MODEL?'en':'auto'};
 export async function readAISettings():Promise<AISettings>{try{return {...defaultAISettings,...JSON.parse(await fs.readFile(path.join(DATA_DIR,'ai-settings.json'),'utf8'))};}catch{return {...defaultAISettings};}}
-export async function saveAISettings(settings:Partial<AISettings>){const current=await readAISettings();const next={...current,...settings};if(!['local','openai','openai-compatible','elevenlabs'].includes(next.provider))throw new Error('Unknown AI provider');if(settings.apiKey==='')delete next.apiKey;await atomicJSON(path.join(DATA_DIR,'ai-settings.json'),next);return redactSettings(next);}
+export async function saveAISettings(settings:Partial<AISettings>){const current=await readAISettings();const next={...current,...settings};if(!['local','openai','openai-compatible','elevenlabs','openrouter'].includes(next.provider))throw new Error('Unknown AI provider');if(settings.apiKey==='')delete next.apiKey;await atomicJSON(path.join(DATA_DIR,'ai-settings.json'),next);return redactSettings(next);}
 export function redactSettings(settings:AISettings){const {apiKey,...publicSettings}=settings;return {...publicSettings,hasApiKey:!!apiKey};}
 export function validateProject(value:unknown):Project{
  if(!value||typeof value!=='object')throw new Error('Expected a project object');const p=value as Project;
