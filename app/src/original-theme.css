@@ -71,3 +71,11 @@ body,.app-shell{background:var(--background);color:var(--foreground)}h1,h2,h3{le
 @media(max-width:900px){.titlebar .brand{padding-right:16px}.titlebar .document-tab{min-width:115px;padding:0 12px;gap:12px}.project-header .editor-quick-actions{gap:8px}.project-header .editor-quick-actions .button{padding:7px 8px;gap:6px}.project-header-controls{gap:4px}}
 /* Live capture previews repaint every frame, so a backdrop blur over them is recomputed continuously. */
 .app-shell:has(.recording-workspace) :is(.modal-backdrop,.setup-backdrop){backdrop-filter:none}
+/* Home cards: readable meta text and tools spaced so Trash is never a slip away from Duplicate. */
+.recent-project-copy small,.recent-project-copy time{font-size:12px}
+.recent-thumbnail>small{font-size:11px;padding:1px 4px}
+.recent-project-tools{gap:10px;padding-right:8px}
+.recent-project-tools .icon-button{width:30px;height:30px;border-radius:6px}
+.recent-project-tools .recent-project-trash:hover{color:#dc2626;background:#fef2f2}
+[data-theme=dark] .recent-project-tools .recent-project-trash:hover{color:#fca5a5;background:rgba(127,29,29,.25)}
+.recent-projects>header .button{font-size:12px;min-height:30px;padding:4px 8px}
