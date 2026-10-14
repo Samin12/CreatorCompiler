@@ -1,3 +1,4 @@
+import type {Project} from '../shared/types';
 /** Geometry used by pointer dragging. Times stay unrounded until an actual snap. */
 export interface TimelineSpan {id:string;start:number;duration:number}
 export interface SnapTarget {time:number;kind:'playhead'|'edge'|'scene'|'origin';id?:string}
@@ -52,4 +53,8 @@ export function hitLayerDrop(y:number,kind:LayerHitRow['kind'],rows:readonly Lay
   if(y>=row.bottom-insertionPx&&y<=row.bottom+insertionPx)return {kind:'new',beforeId:next?.id??null,afterId:row.id};
  }
  return null;
+}
+/** Scene and clip timing captured when a scene drag starts; the drop is refused if another edit moved either in between. */
+export function sceneDragFingerprint(p:Pick<Project,'scenes'|'clips'>):string{
+ return JSON.stringify([p.scenes.map(s=>[s.id,s.start,s.duration]),p.clips.map(c=>[c.id,c.start,c.sourceIn,c.sourceOut,c.speed])]);
 }
