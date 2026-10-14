@@ -72,11 +72,13 @@ export async function transcribe(media:Media,settings:AISettings,workDir:string,
   try{if(!(await stat(model)).isFile())throw new Error()}catch{throw new Error('Local Whisper model file is missing. Set a valid GGML model path in AI settings.')}
  }else if(!settings.apiKey&&settings.provider!=='openai-compatible')throw new Error('Add your own provider API key in AI settings before cloud transcription.');
  await mkdir(workDir,{recursive:true});const dir=path.join(workDir,`transcribe-${makeId()}`);await mkdir(dir);const audio=path.join(dir,'audio.wav');
+ // Background QoS with two threads runs roughly 2.5x slower, so automatic work gets a proportionally longer deadline.
+ const limit=(options.background?3:1)*30*60*1000;
  try{
   const input=options.prepared&&settings.provider==='local'?media.path:audio;
-  if(input===audio)await run(ffmpeg,['-hide_banner','-loglevel','error','-nostdin','-i',media.path,'-vn','-ac','1','-ar','16000','-c:a','pcm_s16le',audio],30*60*1000,options.signal,options.background,options.hold);options.progress?.(.2);
+  if(input===audio)await run(ffmpeg,['-hide_banner','-loglevel','error','-nostdin','-i',media.path,'-vn','-ac','1','-ar','16000','-c:a','pcm_s16le',audio],limit,options.signal,options.background,options.hold);options.progress?.(.2);
   if(settings.provider==='local'){
-   const output=path.join(dir,'transcript');await run(command!,['-m',model,'-f',input,'-l',settings.language||'auto','-t',options.background?'2':'4','-ojf','-of',output,'-ml','42','-sow','-np'],30*60*1000,options.signal,options.background,options.hold);options.progress?.(.95);
+   const output=path.join(dir,'transcript');await run(command!,['-m',model,'-f',input,'-l',settings.language||'auto','-t',options.background?'2':'4','-ojf','-of',output,'-ml','42','-sow','-np'],limit,options.signal,options.background,options.hold);options.progress?.(.95);
    return {captions:parseTranscription(JSON.parse(await readFile(`${output}.json`,'utf8'))),provider:'local whisper.cpp'};
   }
   const data=await readFile(audio);if(data.byteLength>24_000_000)throw new Error('Cloud transcription input exceeds the current 24 MB upload limit. Use local transcription or transcribe a shorter media file.');
