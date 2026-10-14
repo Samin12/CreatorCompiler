@@ -20,6 +20,17 @@ test('phase is deterministic when paused, seeks directly, and repeats without ac
  assert.deepEqual(canvasBackgroundStyle(canvas,4),canvasBackgroundStyle(canvas,4));
  assert.ok(canvasBackgroundGeometry(canvas,16-1/30).phaseX>39.9);
 });
+test('stage drift snaps to device pixels, so the style changes a few times a second instead of every frame',()=>{
+ const scale=1000/1920,positions=new Set<string>();
+ for(let frame=0;frame<120;frame++){
+  const snapped=canvasBackgroundStyle(canvas,frame/120,scale,2).backgroundPosition.split(' ').map(parseFloat),exact=canvasBackgroundStyle(canvas,frame/120,scale).backgroundPosition.split(' ').map(parseFloat);
+  for(const axis of [0,1]){assert.equal(snapped[axis]*2,Math.round(snapped[axis]*2));assert.ok(Math.abs(snapped[axis]-exact[axis])<=.25+1e-9);}
+  positions.add(snapped.join());
+ }
+ assert.ok(positions.size>1&&positions.size<=6,`${positions.size} distinct positions in one second at 120 Hz`);
+ assert.deepEqual({...canvasBackgroundStyle(canvas,4,scale,2),backgroundPosition:''},{...canvasBackgroundStyle(canvas,4,scale),backgroundPosition:''});
+ assert.deepEqual(canvasBackgroundStyle(canvas,4,scale,0),canvasBackgroundStyle(canvas,4,scale));
+});
 test('integer repeat rectangles preserve fractional pitch and bound unusual output dimensions',()=>{
  for(const [w,h,width,height]of[[1920,1080,40,40],[3840,2160,80,80],[640,360,40,40],[1280,720,80,80]])assert.deepEqual(canvasBackgroundRepeatSize(canvas,canvasBackgroundGeometry(canvas,0,w,h)),{width,height});
  const awkward=canvasBackgroundGeometry(canvas,0,638,358),repeat=canvasBackgroundRepeatSize(canvas,awkward);assert.ok(repeat.width<=638&&repeat.height<=358);assert.ok(Math.abs(repeat.width/awkward.pitchX-Math.round(repeat.width/awkward.pitchX))<1e-9||repeat.width===638);

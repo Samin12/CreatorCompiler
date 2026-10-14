@@ -57,8 +57,9 @@ export function canvasBackgroundBMP(canvas:BackgroundCanvas,geometry=canvasBackg
  for(let y=0;y<h;y++)for(let x=0;x<w;x++){const source=(y*w+x)*3,target=54+(h-1-y)*stride+x*3;bytes[target]=pixels[source+2];bytes[target+1]=pixels[source+1];bytes[target+2]=pixels[source];}
  return bytes;
 }
-/** CSS pixels come from the same project-time geometry; no independent CSS animation clock. */
-export function canvasBackgroundStyle(canvas:BackgroundCanvas,time:number,displayScale=1){
- const g=canvasBackgroundGeometry(canvas,time),scale=positive(displayScale,1);
- return {backgroundImage:`radial-gradient(circle at center, ${MOVING_DOTS.color} ${g.coreX*scale}px, transparent ${g.edgeX*scale}px)`,backgroundRepeat:'repeat',backgroundSize:`${g.pitchX*scale}px ${g.pitchY*scale}px`,backgroundPosition:`${(g.phaseX-g.pitchX/2)*scale}px ${(g.phaseY-g.pitchY/2)*scale}px`};
+/** CSS pixels come from the same project-time geometry; no independent CSS animation clock. With a device pixel ratio the
+ * drift snaps to whole device pixels, so the style (and the stage repaint) changes a few times a second instead of every frame. */
+export function canvasBackgroundStyle(canvas:BackgroundCanvas,time:number,displayScale=1,pixelRatio?:number){
+ const g=canvasBackgroundGeometry(canvas,time),scale=positive(displayScale,1),snap=(n:number)=>pixelRatio&&Number.isFinite(pixelRatio)&&pixelRatio>0?Math.round(n*pixelRatio)/pixelRatio:n;
+ return {backgroundImage:`radial-gradient(circle at center, ${MOVING_DOTS.color} ${g.coreX*scale}px, transparent ${g.edgeX*scale}px)`,backgroundRepeat:'repeat',backgroundSize:`${g.pitchX*scale}px ${g.pitchY*scale}px`,backgroundPosition:`${snap((g.phaseX-g.pitchX/2)*scale)}px ${snap((g.phaseY-g.pitchY/2)*scale)}px`};
 }
