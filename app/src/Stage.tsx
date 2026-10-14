@@ -21,7 +21,7 @@ function ClipView({clip,media,time,visible,playing,quality,onSelect,project:p,pi
  useEffect(()=>{const elements=[ref.current,audio.current,backdrop.current];return()=>{for(const element of elements)if(element)previewAudioMixer.detach(element);};},[media.id,media.kind,clip.track]);
  // An upcoming clip is pre-seeked once to its first frame. A playing element that is still seeking or buffering is left to
  // catch up: seeking it again would only restart the stall.
- useEffect(()=>{let failed=false;const live=playing&&visible;for(const el of [ref.current,audio.current,backdrop.current]){if(!el)continue;const isBackdrop=el===backdrop.current;if(isBackdrop){el.volume=0;el.muted=true;}else{try{previewAudioMixer.update(el,clip,time,live,playbackRate,playing);}catch{el.muted=true;failed=true;}}const rate=Math.max(.0625,Math.min(16,clip.speed*playbackRate));if(el.playbackRate!==rate)el.playbackRate=rate;const target=clip.sourceIn+Math.max(0,time-clip.start)*clip.speed;if(Math.abs(el.currentTime-target)>(live?.22:.025)&&!(live&&(el.seeking||el.readyState>el.HAVE_NOTHING&&el.readyState<el.HAVE_FUTURE_DATA)))el.currentTime=target;if(live&&!isBackdrop){if(el.paused)el.play().catch(()=>{});}else if(!el.paused)el.pause();}setAudioError(failed);},[time,playing,clip,visible,vision.frame,playbackRate]);
+ useEffect(()=>{let failed=false;const live=playing&&visible;for(const el of [ref.current,audio.current,backdrop.current]){if(!el)continue;const isBackdrop=el===backdrop.current;if(isBackdrop){el.volume=0;el.muted=true;}else{try{previewAudioMixer.update(el,clip,time,live,playbackRate);}catch{el.muted=true;failed=true;}}const rate=Math.max(.0625,Math.min(16,clip.speed*playbackRate));if(el.playbackRate!==rate)el.playbackRate=rate;const target=clip.sourceIn+Math.max(0,time-clip.start)*clip.speed;if(Math.abs(el.currentTime-target)>(live?.22:.025)&&!(live&&(el.seeking||el.readyState>el.HAVE_NOTHING&&el.readyState<el.HAVE_FUTURE_DATA)))el.currentTime=target;if(live&&!isBackdrop){if(el.paused)el.play().catch(()=>{});}else if(!el.paused)el.pause();}setAudioError(failed);},[time,playing,clip,visible,vision.frame,playbackRate]);
  if(media.kind==='audio'||clip.track==='audio'||clip.track==='music')return <><audio ref={audio} src={mediaUrl(media)} preload={visible?'metadata':'auto'}/>{audioError&&visible&&<span role="status" className="vision-preview-status">Audio preview unavailable</span>}</>;
  const t={...clip.transform},e=clip.effects;
  const full=t.x===0&&t.y===0&&t.width===1&&t.height===1&&(clip.zIndex??0)>=0;
@@ -43,30 +43,35 @@ function ClipView({clip,media,time,visible,playing,quality,onSelect,project:p,pi
 
 export const Stage=memo(function Stage({project:p,playhead,playing,playbackRate=1,onSelect,onImport}:{project:Project;playhead:Playhead;playing:boolean;playbackRate?:number;onSelect:(id:string)=>void;onImport:()=>void}){
  const time=usePlayheadTime(playhead);
- const ref=useRef<HTMLDivElement>(null),wrapper=useRef<HTMLDivElement>(null),[box,setBox]=useState({width:640,height:360}),[dimensions,setDimensions]=useState({width:640,height:360}),[scrubbing,setScrubbing]=useState(false),still=useRef(time),mounted=useRef<ReadonlyMap<string,string>>(new Map());
- useEffect(()=>{if(!ref.current)return;const observer=new ResizeObserver(([entry])=>setBox({width:entry.contentRect.width,height:entry.contentRect.height}));observer.observe(ref.current);return()=>observer.disconnect();},[]);
+ const ref=useRef<HTMLDivElement>(null),wrapper=useRef<HTMLDivElement>(null),[width,setWidth]=useState(640),[dimensions,setDimensions]=useState({width:640,height:360}),[wakes,wake]=useState(0),still=useRef({time,at:-Infinity}),mounted=useRef<ReadonlyMap<string,string>>(new Map());
+ useEffect(()=>{if(!ref.current)return;const observer=new ResizeObserver(([entry])=>setWidth(entry.contentRect.width));observer.observe(ref.current);return()=>observer.disconnect();},[]);
  useEffect(()=>{const node=wrapper.current;if(!node)return;const resize=()=>{const style=getComputedStyle(node),availableWidth=node.clientWidth-parseFloat(style.paddingLeft)-parseFloat(style.paddingRight),availableHeight=node.clientHeight-parseFloat(style.paddingTop)-parseFloat(style.paddingBottom),ratio=p.canvas.width/p.canvas.height;const width=Math.max(0,Math.min(availableWidth,availableHeight*ratio));setDimensions({width,height:width/ratio});};const observer=new ResizeObserver(resize);observer.observe(node);resize();return()=>observer.disconnect();},[p.canvas.width,p.canvas.height]);
- // A paused playhead that keeps moving is being scrubbed: pre-roll waits until it settles, so scrubbing never opens extra decoders.
- useEffect(()=>{const moved=!playing&&still.current!==time;still.current=time;if(!moved){if(playing)setScrubbing(false);return;}setScrubbing(true);const timer=setTimeout(()=>setScrubbing(false),250);return()=>clearTimeout(timer);},[time,playing]);
- const scale=box.width/p.canvas.width,caption=p.captionStyle.enabled?p.captions.find(c=>time>=c.start&&time<c.end):null;
+ // A paused playhead that moved in the last 250 ms is being scrubbed: pre-roll keeps the elements it has but opens no new
+ // decoders until the playhead settles. Worked out during render, so the first frame of a seek already counts.
+ const scrubbing=!playing&&(still.current.time!==time||performance.now()-still.current.at<250);
+ useEffect(()=>{if(!scrubbing)return;const timer=setTimeout(()=>wake(n=>n+1),Math.max(0,still.current.at+250-performance.now()));return()=>clearTimeout(timer);},[scrubbing,time,wakes]);
+ useEffect(()=>{previewAudioMixer.transport(playing);},[playing]);
+ useEffect(()=>()=>previewAudioMixer.release(),[]);
+ const scale=width/p.canvas.width,caption=p.captionStyle.enabled?p.captions.find(c=>time>=c.start&&time<c.end):null;
  const pattern=p.canvas.backgroundPattern==='moving-dots',pixelRatio=typeof window==='undefined'?1:window.devicePixelRatio||1;
  const pointAt=useMemo(()=>p.cursor.enabled?cursorPointLookup(p.cursor.points):null,[p.cursor.enabled,p.cursor.points]),point=pointAt?.(time);
  const mediaById=useMemo(()=>new Map(p.media.map(m=>[m.id,m])),[p.media]);
  const index=useMemo(()=>stageIndex(p),[p.clips,p.timelineLayers]);
  // Each row also mounts its next clip up to two seconds of playback ahead. DOM order follows the playback key, never the
- // composite order, so a playing element is never moved; a negative z-index stacks the layers below elements and captions.
- const slots=stageSlots(index,time,scrubbing?0:2*Math.max(1,playbackRate),mounted.current).sort((a,b)=>a.key<b.key?-1:a.key>b.key?1:0);
- useLayoutEffect(()=>{mounted.current=new Map(slots.map(s=>[s.clip.id,s.key]));});
+ // composite order, so a playing element is never moved; a negative z-index stacks the layers below elements and captions,
+ // and .stage-inner (painted above them) lets clicks through to the media.
+ const slots=stageSlots(index,time,2*Math.max(1,playbackRate),mounted.current,!scrubbing).sort((a,b)=>a.key<b.key?-1:a.key>b.key?1:0);
+ useLayoutEffect(()=>{mounted.current=new Map(slots.map(s=>[s.clip.id,s.key]));if(still.current.time!==time)still.current={time,at:playing?-Infinity:performance.now()};});
  const visual=slots.filter(({clip:c})=>['screen','camera','overlay'].includes(c.track));
  const audio=slots.filter(({clip:c})=>['audio','music'].includes(c.track));
  return <div className="stage-wrap" ref={wrapper}><div ref={ref} className="stage" style={{...dimensions,flexShrink:0,isolation:'isolate',background:p.canvas.background,...(pattern?canvasBackgroundStyle(p.canvas,time,scale,pixelRatio):{})}}>
-  <div className="stage-inner" style={{inset:0}}>
+  <div className="stage-inner" style={{inset:0,pointerEvents:'none'}}>
    {visual.map(({clip:c,key,visible})=>{const m=mediaById.get(c.mediaId);return m?<div key={key} className="stage-layer" style={{zIndex:index.rank.get(c)!-index.clips.length}}><ClipView clip={c} media={m} time={time} visible={visible} playing={playing} quality={p.settings.previewQuality==='proxy'} onSelect={()=>onSelect(c.id)} project={p} pixelScale={scale} playbackRate={playbackRate}/></div>:null;})}
    {audio.map(({clip:c,key,visible})=>{const m=mediaById.get(c.mediaId);return m?<ClipView key={key} clip={c} media={m} time={time} visible={visible} playing={playing} quality={false} onSelect={()=>onSelect(c.id)} project={p} pixelScale={scale} playbackRate={playbackRate}/>:null;})}
   </div>
   {p.elements.filter(e=>time>=e.start&&time<e.start+e.duration).map(e=><div key={e.id} className={`stage-element element-${e.type}`} onClick={event=>{event.stopPropagation();onSelect(e.id);}} style={{left:`${e.x*100}%`,top:`${e.y*100}%`,width:`${e.width*100}%`,height:`${e.height*100}%`,fontSize:e.fontSize*scale,color:e.color,background:e.type==='arrow'?'transparent':e.background,opacity:e.opacity,transform:`rotate(${e.rotation}deg)`,border:e.type==='rectangle'||e.type==='ellipse'?`${Math.max(1,3*scale)}px solid ${e.color}`:undefined,backdropFilter:e.type==='blur'?'blur(12px)':undefined}}>{e.type==='text'?e.text:e.type==='arrow'?<svg viewBox="0 0 100 40" preserveAspectRatio="none"><path d="M2 20H90 M72 4L94 20L72 36" fill="none" stroke={e.color} strokeWidth="4"/></svg>:null}</div>)}
   {caption&&<div className={`stage-caption caption-${p.captionStyle.position}`} style={{fontSize:p.captionStyle.fontSize*scale,color:p.captionStyle.color}}><span style={{background:p.captionStyle.background}}>{caption.text}</span></div>}
-  {p.cursor.enabled&&point&&point.visible!==false&&<div className={`stage-cursor ${p.cursor.highlight?'has-highlight':''}`} style={{left:0,top:0,transform:`translate(${point.x*box.width}px,${point.y*box.height}px)`,willChange:'transform',width:p.cursor.size*scale,color:p.cursor.color}}><svg viewBox="0 0 24 32"><path d="M2 1v27l7-7 6 10 5-3-6-10 10-1z" fill="currentColor" stroke="#171b27"/></svg></div>}
+  {p.cursor.enabled&&point&&point.visible!==false&&<div className={`stage-cursor ${p.cursor.highlight?'has-highlight':''}`} style={{left:`${point.x*100}%`,top:`${point.y*100}%`,width:p.cursor.size*scale,color:p.cursor.color}}><svg viewBox="0 0 24 32"><path d="M2 1v27l7-7 6 10 5-3-6-10 10-1z" fill="currentColor" stroke="#171b27"/></svg></div>}
   {!p.clips.length&&<button className="stage-empty" style={pattern?{background:'transparent',color:'#f4f4f4'}:undefined} onClick={onImport}><div className="stage-empty-icon"><Film size={32}/></div><strong style={pattern?{color:'#f4f4f4'}:undefined}>Your story starts here</strong><span style={pattern?{color:'#b8b8b8'}:undefined}>Import a video, record a take, or add an element.</span><span className="button primary"><Plus size={14}/>Import media</span></button>}
  </div><div className="stage-caption-label"><span>{p.canvas.width} × {p.canvas.height}</span><span>{p.settings.previewQuality==='proxy'?'Adaptive preview':'Original quality'}</span></div></div>;
 });

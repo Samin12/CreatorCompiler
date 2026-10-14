@@ -19,20 +19,26 @@ export function stageIndex(project:Project):StageIndex{
 export interface StageSlot {clip:Clip;key:string;visible:boolean}
 /** Clips under the playhead, plus at most one upcoming clip per row inside the look-ahead, mounted early so its media
  * is loaded and pre-seeked before the cut. `mounted` maps clip ids to the keys of the last commit: a clip already on
- * stage keeps its element through any edit, and a newly shown clip takes over its chain predecessor's element. */
-export function stageSlots(index:StageIndex,time:number,lookAhead=0,mounted:ReadonlyMap<string,string>=new Map()):StageSlot[]{
- const active:Clip[]=[],next=new Map<string,Clip>();
+ * stage keeps its element through any edit, and a newly shown clip takes over its chain predecessor's element. While the
+ * playhead is being scrubbed (`settled` false) an upcoming clip only keeps an element it already has. */
+export function stageSlots(index:StageIndex,time:number,lookAhead=0,mounted:ReadonlyMap<string,string>=new Map(),settled=true):StageSlot[]{
+ const active:Clip[]=[],upcoming:Clip[]=[];
  for(const clip of index.clips){
   const start=clip.start,end=start+clipDuration(clip);
   if(time>=start&&time<end)active.push(clip);
-  else if(start>time&&start<=time+lookAhead&&end>start){const row=index.row.get(clip)??'',current=next.get(row);if(!current||start<current.start)next.set(row,clip);}
+  else if(start>time&&start<=time+lookAhead&&end>start)upcoming.push(clip);
  }
- const slots:StageSlot[]=[],used=new Set<string>(),chain=(clip:Clip)=>{const before=index.previous.get(clip);return (before&&mounted.get(before.id))??index.key.get(clip)??clip.id;};
+ const slots:StageSlot[]=[],used=new Set<string>(),rows=new Set<string>(),onStage=new Set(active),chain=(clip:Clip)=>{const before=index.previous.get(clip);return (before&&mounted.get(before.id))??index.key.get(clip)??clip.id;};
  const take=(clip:Clip,key:string,visible:boolean)=>{if(used.has(key))key=used.has(clip.id)?`${clip.id}~`:clip.id;used.add(key);slots.push({clip,key,visible});};
  for(const clip of active){const key=mounted.get(clip.id);if(key!==undefined)take(clip,key,true);}
  for(const clip of active)if(!mounted.has(clip.id))take(clip,chain(clip),true);
- // An upcoming clip that continues an active one needs no pre-roll: it will inherit that element at the cut.
- for(const clip of next.values()){const key=mounted.get(clip.id)??chain(clip);if(!used.has(key))take(clip,key,false);}
+ // An upcoming clip that continues an on-stage one needs no pre-roll: it inherits that element at the cut, so the row
+ // pre-rolls the first clip after the chain instead.
+ for(const clip of upcoming.sort((a,b)=>a.start-b.start)){
+  const before=index.previous.get(clip);if(before&&onStage.has(before)){onStage.add(clip);continue;}
+  const row=index.row.get(clip)??'',key=mounted.get(clip.id)??chain(clip);if(rows.has(row)||used.has(key))continue;
+  rows.add(row);if(settled||mounted.has(clip.id))take(clip,key,false);
+ }
  return slots;
 }
 

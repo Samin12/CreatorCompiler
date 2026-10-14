@@ -28,7 +28,7 @@ test('contiguous same-source cuts on one row share a playback key; gaps, other s
  assert.equal(stageIndex(q).key.get(q.clips.find(c=>c.id==='b')!),'b','another row never shares an element');
 });
 
-test('slots hold the clips under the playhead plus at most one upcoming clip per row, and never while scrubbing',()=>{
+test('slots hold the clips under the playhead plus at most one upcoming clip per row, and none without a look-ahead',()=>{
  const index=stageIndex(project());
  assert.deepEqual(summary(stageSlots(index,4,2)),['a:a:on','d:d:on','f:f:on'],'the split continuation reuses the active element');
  assert.deepEqual(summary(stageSlots(index,5,2)),['b:a:on','d:d:on','f:f:on']);
@@ -37,6 +37,17 @@ test('slots hold the clips under the playhead plus at most one upcoming clip per
  assert.deepEqual(summary(stageSlots(index,9,0)),['b:a:on','d:d:on','f:f:on']);
  assert.deepEqual(summary(stageSlots(index,10.5,2)),['c:c:on','e:e:on','g:g:pre','h:h:pre']);
  const p=project();p.clips.push(clip('empty','screen','overlay',4.5,3,0));assert.ok(!stageSlots(stageIndex(p),4,2).some(s=>s.clip.id==='empty'));
+ // A short split piece inherits the element at its cut, so the row pre-rolls the real cut after it.
+ const q=project();q.clips.find(c=>c.id==='b')!.sourceOut=5.5;q.clips.push(clip('x','camera','screen',5.5,60,2));
+ assert.deepEqual(summary(stageSlots(stageIndex(q),4,2)),['a:a:on','d:d:on','f:f:on','x:x:pre']);
+});
+
+test('while scrubbing, upcoming clips keep the elements they have but open no new ones',()=>{
+ const index=stageIndex(project()),settled=stageSlots(index,9,2),mounted=new Map(settled.filter(s=>s.clip.id!=='e').map(s=>[s.clip.id,s.key]));
+ assert.deepEqual(summary(stageSlots(index,9.2,2,mounted,false)),['b:a:on','c:c:pre','d:d:on','f:f:on','g:g:pre']);
+ assert.deepEqual(summary(stageSlots(index,9.2,2,mounted)),['b:a:on','c:c:pre','d:d:on','e:e:pre','f:f:on','g:g:pre']);
+ // Scrubbing back before a shown clip keeps its element as the row's pre-roll.
+ assert.deepEqual(summary(stageSlots(index,9.9,2,new Map(stageSlots(index,10.2,2).map(s=>[s.clip.id,s.key])),false)),['b:a:on','c:c:pre','d:d:on','e:e:pre','f:f:on','g:g:pre']);
 });
 
 test('playback keeps one element per lane: pre-rolled clips keep their key at the cut, and splits continue the same element',()=>{
@@ -90,7 +101,7 @@ test('stage filters omit identity functions and keep order and the drop-shadow',
  assert.equal(clipFilterCss(all,creator,.5),`brightness(${1+all.brightness}) contrast(1.2) saturate(0) blur(1px) grayscale(1)${clipShadowCss(creator,.5)}`);
 });
 
-test('Stage pre-rolls upcoming clips transparent, inert and hidden from assistive technology, below elements',()=>{
+test('Stage pre-rolls upcoming clips transparent, inert and hidden from assistive technology, below elements and still clickable',()=>{
  const p=project();p.cursor={...p.cursor,enabled:true,points:[{time:0,x:.1,y:.1},{time:8,x:.5,y:.25}]};
  const html=renderToStaticMarkup(React.createElement(Stage,{project:p,playhead:createPlayhead(9),playing:false,onSelect:()=>{},onImport:()=>{}}));
  assert.equal(html.match(/<video/g)?.length,4);assert.equal(html.match(/<audio/g)?.length,2);
@@ -98,5 +109,6 @@ test('Stage pre-rolls upcoming clips transparent, inert and hidden from assistiv
  assert.equal(html.match(/<audio[^>]*preload="auto"/g)?.length,1);assert.equal(html.match(/<video[^>]*preload="auto"/g)?.length,2);
  assert.ok(!/brightness\(/.test(html));assert.match(html,/filter:none/);
  for(const [,z] of html.matchAll(/class="stage-layer" style="z-index:(-?\d+)"/g))assert.ok(Number(z)<0);
- assert.match(html,/left:0;top:0;transform:translate\(320px,90px\)/);
+ assert.match(html,/class="stage-inner" style="inset:0;pointer-events:none"/,'clicks reach the media layers stacked below .stage-inner');
+ assert.match(html,/class="stage-cursor [^"]*" style="left:50%;top:25%;/);
 });
