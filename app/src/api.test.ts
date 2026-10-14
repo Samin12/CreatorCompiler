@@ -28,7 +28,7 @@ test('a minimal save echo keeps the sent project, its key order and nested objec
  assert.notEqual(adopted,sent);assert.equal(adopted.clips,sent.clips);assert.equal(adopted.canvas,sent.canvas);assert.equal(adopted.updatedAt,'2026-10-13T12:00:00.000Z');
  assert.equal(JSON.stringify(adopted),JSON.stringify({...JSON.parse(JSON.stringify(sent)),updatedAt:'2026-10-13T12:00:00.000Z'}));assert.deepEqual(Object.keys(adopted),Object.keys(sent));
  const full={...sent,name:'Normalized'};assert.equal(adoptSavedProject(sent,full),full,'a full response is adopted as before');
- const other={minimal:true,id:'another',updatedAt:'x'};assert.equal(adoptSavedProject(sent,other),other as unknown);
+ assert.throws(()=>adoptSavedProject(sent,{minimal:true,id:'another',updatedAt:'x'}),/did not match/);assert.throws(()=>adoptSavedProject(sent,{minimal:true,id:sent.id}),/did not match/);
 });
 
 test('pre-serialized JSON bodies are sent unchanged',async()=>{

@@ -21,7 +21,7 @@ export async function apiResult<T>(path:string,body?:unknown,method?:string,head
 }
 export async function api<T>(path:string, body?:unknown, method?:string,signal?:AbortSignal):Promise<T> {return (await apiResult<T>(path,body,method,{},signal)).data;}
 /** With `Prefer: return=minimal`, an unchanged save returns only its new timestamp; the sent object is kept with every nested object. */
-export function adoptSavedProject(sent:Project,body:unknown):Project{const echo=body as {minimal?:unknown;id?:unknown;updatedAt?:unknown};return echo?.minimal===true&&echo.id===sent.id&&typeof echo.updatedAt==='string'?{...sent,updatedAt:echo.updatedAt}:body as Project;}
+export function adoptSavedProject(sent:Project,body:unknown):Project{const echo=body as {minimal?:unknown;id?:unknown;updatedAt?:unknown};if(echo?.minimal!==true)return body as Project;if(echo.id!==sent.id||typeof echo.updatedAt!=='string')throw new Error('The save response did not match this project. Your edits are still open.');return {...sent,updatedAt:echo.updatedAt};}
 export async function projectRevision(project:Project):Promise<string>{return '"'+Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(project))))).map(n=>n.toString(16).padStart(2,'0')).join('')+'"';}
 export const mediaUrl=(m:Media,proxy=false)=>`/api/media/${m.id}/${proxy&&m.kind==='video'?'proxy':'file'}`;
 export const timecode=(n:number)=>{const v=Math.max(0,Number.isFinite(n)?n:0);return `${Math.floor(v/60).toString().padStart(2,'0')}:${Math.floor(v%60).toString().padStart(2,'0')}`;};
