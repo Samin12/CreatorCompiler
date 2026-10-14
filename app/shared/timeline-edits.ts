@@ -1,6 +1,8 @@
 import {clipDuration,clipEffectTiming,makeId,projectDuration,type CursorPoint,type Project} from './types';
 const EPS=1e-7;
-/** Remove one time interval on every track while retaining source/effect origins. `source` is a plain view of `p` to read from (drafts are slow to scan). */
+/** Remove one time interval on every track while retaining source/effect origins. `source` is a plain view of `p` to read from (drafts are slow to scan).
+ * With a plain `source`, the rebuilt clips, captions and timed items share nested objects (transform, effects, …) with the previous state:
+ * later in the same edit, replace those nested objects rather than mutating them. */
 export function cutTimelineRange(p:Project,from:number,to:number,ripple=true,source:Project=p){
  const start=Math.max(0,from),end=Math.min(projectDuration(source),to),length=end-start;
  if(!Number.isFinite(start)||!Number.isFinite(end)||length<=EPS)return;

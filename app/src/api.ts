@@ -44,6 +44,7 @@ export function insertMedia(p:Project, medias:Media[], at?:number, track?:TrackK
  }
  if(p.scenes.length===1&&p.scenes[0].duration===0)p.scenes[0].duration=position;
 }
+/** Reads a plain view, so later in the same edit replace the cut items' nested objects (transform, effects, …) rather than mutating them. */
 export function cutRange(p:Project,start:number,end:number,ripple=true) {cutTimelineRange(p,start,end,ripple,plainView(p));}
 
 // Recovery plans are reviewed against both a project revision and a file fingerprint.
