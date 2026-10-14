@@ -1,0 +1,40 @@
+import test from 'node:test';import assert from 'node:assert/strict';
+import {createProject,defaultEffects,defaultTransform,type Media} from '../shared/types';
+import {confirmTake as confirmTakeCurrent,readSavedTakes,takePreviewProject,type SavedTake} from './recorded-takes';
+const confirmTake=(p:Parameters<typeof confirmTakeCurrent>[0],take:SavedTake)=>{const {id,...legacy}=take;return confirmTakeCurrent(p,legacy);};
+const media:Media={id:'screen',name:'Screen',path:'/local/screen.mp4',kind:'video',duration:3,width:640,height:360};
+const take=(sceneId:string):SavedTake=>({id:'take',createdAt:'2026-10-13',sceneId,media:[media,{...media,id:'camera',name:'Camera'}],tracks:['screen','camera'],offsets:[0,.1]});
+test('confirm inserts all synchronized sources, advances existing next scene, and preserves following source timing',()=>{const p=createProject(),s=p.scenes[0];s.duration=2;p.scenes.push({id:'next',name:'Next',script:'Read next',notes:'',start:2,duration:4});p.clips=[{id:'later',mediaId:'old',name:'Later',track:'screen',start:2,sourceIn:7,sourceOut:11,speed:1,gain:1,muted:false,transform:defaultTransform(),effects:defaultEffects()}];const result=confirmTake(p,take(s.id));assert.equal(result.start,2);assert.equal(result.nextSceneId,'next');assert.equal(s.duration,5.1);assert.equal(p.scenes[1].start,5.1);assert.equal(p.clips[0].start,5.1);assert.equal(p.clips[0].sourceIn,7);assert.equal(p.clips[2].start,2.1);assert.equal(p.clips[2].transform.width,.26);});
+test('last-scene confirmation adds one blank next scene and review never mutates the source project',()=>{const p=createProject(),t=take(p.scenes[0].id),before=JSON.stringify(p);const preview=takePreviewProject(p,t);assert.equal(JSON.stringify(p),before);assert.equal(preview.clips.length,2);const result=confirmTake(p,t);assert.equal(p.scenes.length,2);assert.equal(p.scenes[1].id,result.nextSceneId);assert.equal(p.scenes[1].start,3.1);assert.equal(p.scenes[1].script,'');});
+test('saved unconfirmed takes survive serialization and invalid offsets cannot enter playback',()=>{const t=take('scene');t.retained=true;assert.deepEqual(readSavedTakes(JSON.stringify([t])),[t]);assert.deepEqual(readSavedTakes(JSON.stringify([{...t,offsets:[0,-1]}])),[]);assert.deepEqual(readSavedTakes('{broken'),[]);});
+test('retrying a previously saved confirmation never duplicates its clips or shifts later scenes again',()=>{const p=createProject(),t=take(p.scenes[0].id);t.clipIds=['confirmed-screen','confirmed-camera'];const first=confirmTake(p,t),snapshot=JSON.stringify(p);const second=confirmTake(p,t);assert.deepEqual(second,first);assert.equal(JSON.stringify(p),snapshot);p.clips.pop();assert.throws(()=>confirmTake(p,t),/Part of this take/);});
+test('insertion preserves split audio effect timing and retimes caption words after the gap',()=>{const p=createProject();p.scenes[0].duration=3;p.scenes.push({id:'next',name:'Next',script:'',notes:'',start:3,duration:2});p.clips=[{id:'crossing',mediaId:'old',name:'Crossing audio',track:'audio',start:0,sourceIn:7,sourceOut:12,speed:1,gain:1,muted:false,transform:defaultTransform(),effects:{...defaultEffects(),fadeIn:2,fadeOut:2,normalize:true}}];p.captions=[{id:'words',start:1,end:5,text:'before after',words:[{text:'before',start:1.5,end:2},{text:'after',start:4,end:4.5}]}];const t=take(p.scenes[0].id);t.media=[{...media,duration:2}];t.tracks=['screen'];t.offsets=[0];confirmTake(p,t);const pieces=p.clips.filter(c=>c.mediaId==='old');assert.deepEqual(pieces.map(c=>c.effectTiming),[{sourceIn:7,sourceOut:12},{sourceIn:7,sourceOut:12}]);assert.equal(pieces[1].start,5);assert.equal(pieces[1].sourceIn,10);assert.equal(p.captions[1].words?.[0].start,6);assert.equal(p.captions[1].text,'after');assert.equal(p.captions[0].end,3);assert.equal(p.captions[1].start,5);});
+test('insertion keeps existing overlays and cursor outside the new take and blocks unsupported crossing zoom easing',()=>{const p=createProject();p.scenes[0].duration=3;p.scenes.push({id:'next',name:'Next',script:'',notes:'',start:3,duration:3});p.elements=[{id:'label',type:'text',start:1,duration:5,text:'old',x:0,y:0,width:1,height:1,color:'#fff',background:'#000',fontSize:20,opacity:1,rotation:0}];p.cursor.points=[{time:0,x:.2,y:.4,visible:true}];const t=take(p.scenes[0].id);t.media=[{...media,duration:2}];t.tracks=['screen'];t.offsets=[0];confirmTake(p,t);assert.deepEqual(p.elements.map(e=>[e.start,e.duration]),[[1,2],[5,3]]);assert.deepEqual(p.cursor.points.map(point=>[point.time,point.visible]),[[0,true],[3,false],[5,true]]);const q=createProject();q.scenes[0].duration=3;q.zooms=[{id:'zoom',start:1,duration:4,scale:2,x:.5,y:.5,target:'screen',easing:'smooth'}];const before=JSON.stringify(q);assert.throws(()=>confirmTake(q,{...t,sceneId:q.scenes[0].id}),/zoom crosses/);assert.equal(JSON.stringify(q),before);});
+
+test('legacy final-scene tail stays in place before a new take, and the next scene starts after all content',()=>{
+ const p=createProject(),first=p.scenes[0];first.duration=14.78;
+ const clip=(id:string,start:number,duration:number)=>({id,mediaId:id,name:id,track:'screen' as const,start,sourceIn:0,sourceOut:duration,speed:1,gain:1,muted:false,transform:defaultTransform(),effects:defaultEffects()});
+ p.clips=[clip('older-take',0,14.78),clip('old-tail',14.78,11.567)];const oldClips=structuredClone(p.clips);
+ const nextTake={...take(first.id),media:[{...media,id:'new-take',duration:21}],tracks:['screen' as const],offsets:[0],clipIds:['new-take-clip']};
+ const result=confirmTake(p,nextTake),close=(actual:number,expected:number)=>assert.ok(Math.abs(actual-expected)<1e-9,`${actual} != ${expected}`);
+ close(result.start,26.347);close(first.duration,47.347);assert.deepEqual(p.clips.slice(0,2),oldClips);assert.equal(p.clips.length,3);
+ const next=p.scenes.find(scene=>scene.id===result.nextSceneId)!;close(next.start,47.347);assert.equal(next.duration,0);
+ const subsequent={...nextTake,sceneId:next.id,media:[{...media,id:'subsequent-take',duration:4.25}],clipIds:['subsequent-clip']};
+ const continued=confirmTake(p,subsequent);close(continued.start,47.347);close(next.duration,4.25);close(p.scenes[2].start,51.597);assert.equal(p.scenes[2].id,continued.nextSceneId);
+ assert.deepEqual(p.clips.slice(0,2),oldClips);const confirmed=JSON.stringify(p);assert.deepEqual(confirmTake(p,nextTake),result);assert.equal(JSON.stringify(p),confirmed);
+});
+test('a final scene keeps an intentional trailing interval and does not move earlier scenes',()=>{
+ const p=createProject();p.scenes[0].duration=10;p.scenes.push({id:'final',name:'Final',script:'',notes:'',start:10,duration:7});
+ p.clips=[{id:'short',mediaId:'old',name:'Short',track:'screen',start:10,sourceIn:4,sourceOut:8,speed:1,gain:1,muted:false,transform:defaultTransform(),effects:defaultEffects()}];
+ const earlier=structuredClone(p.scenes[0]),old=structuredClone(p.clips[0]),result=confirmTake(p,{...take('final'),media:[media],tracks:['screen'],offsets:[0]});
+ assert.equal(result.start,17);assert.deepEqual(p.scenes[0],earlier);assert.deepEqual(p.clips[0],old);assert.equal(p.scenes[1].duration,10);assert.equal(p.scenes[2].start,20);
+});
+
+
+test('saved and confirmed take preserves capture audio roles independent of filenames and track names',()=>{
+ const p=createProject();const t=take(p.scenes[0].id);t.media=[{...media,id:'mic',name:'system.wav',kind:'audio',audioRole:'microphone'}, {...media,id:'system',name:'microphone.wav',kind:'audio',audioRole:'system'}];t.tracks=['audio','audio'];t.offsets=[.349,0];
+ const [saved]=readSavedTakes(JSON.stringify([t]));assert.deepEqual(saved.media.map(m=>m.audioRole),['microphone','system']);
+ const preview=takePreviewProject(p,saved);assert.deepEqual(preview.clips.map(c=>[c.audioRole,c.start]),[['microphone',.349],['system',0]]);
+ confirmTake(p,saved);assert.deepEqual(p.clips.map(c=>[c.audioRole,c.start]),[['microphone',.349],['system',0]]);assert.deepEqual(p.media.map(m=>m.audioRole),['microphone','system']);
+ const legacy=take(p.scenes[1].id);assert.ok(takePreviewProject(p,legacy).clips.every(c=>c.audioRole===undefined));
+});

@@ -1,0 +1,9 @@
+import test from 'node:test';import assert from 'node:assert/strict';
+import {clampRegion,regionToPixels,desktopRegionToNormalized} from './capture-region';
+test('normalized crop uses actual delivered pixels rather than Retina monitor estimates',()=>{const r={x:.25,y:.25,width:.5,height:.5};assert.deepEqual(regionToPixels(r,3840,2160),{x:960,y:540,width:1920,height:1080});assert.deepEqual(regionToPixels(r,1920,1080),{x:480,y:270,width:960,height:540});});
+test('display left of primary and above origin maps global DIP rectangle correctly',()=>{const r=desktopRegionToNormalized({x:-1800,y:-900,width:600,height:400},{x:-2400,y:-1200,width:2400,height:1600});assert.deepEqual(r,{x:.25,y:.1875,width:.25,height:.25});assert.deepEqual(regionToPixels(r,4800,3200),{x:1200,y:600,width:1200,height:800});});
+test('right and bottom bounds clamp without reading pixels beyond the source',()=>{assert.deepEqual(regionToPixels({x:.8,y:.9,width:.5,height:.2},100,100),{x:80,y:90,width:20,height:10});});
+test('fractional region edges are rounded together to avoid gaps and invalid zero dimensions',()=>{assert.deepEqual(regionToPixels({x:.333,y:.333,width:.334,height:.334},100,100),{x:33,y:33,width:34,height:34});assert.deepEqual(regionToPixels({x:.9999,y:.9999,width:.0001,height:.0001},100,100),{x:99,y:99,width:1,height:1});});
+test('invalid or empty crop fails closed instead of falling back to full screen',()=>{assert.throws(()=>clampRegion({x:1,y:0,width:0,height:1}),/visible/);assert.throws(()=>clampRegion({x:NaN,y:0,width:1,height:1}),/invalid/);assert.throws(()=>regionToPixels({x:0,y:0,width:1,height:1},0,0),/dimensions/);});
+
+test('partially outside top-left selection intersects the source instead of expanding the region',()=>{assert.deepEqual(regionToPixels({x:-.2,y:-.1,width:.5,height:.4},100,100),{x:0,y:0,width:30,height:30});});

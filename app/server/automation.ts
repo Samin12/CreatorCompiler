@@ -1,0 +1,90 @@
+import {EventEmitter} from 'node:events';
+import {createHash,randomUUID} from 'node:crypto';
+import {promises as fs} from 'node:fs';
+import path from 'node:path';
+import * as storage from './storage.js';
+import * as ai from './ai.js';
+import {inspectFrames} from './media.js';
+import {projectDuration,type AISettings,type Project,type Caption,type Media} from '../shared/types.js';
+import type {AutomationJob,AutomationKind,AutomationSettings,AutomationMutation,QuickActionRequest} from '../shared/automation.js';
+import {narrationWindows,speechSignature,mapSourceCaptions,mergeAutomaticCaptions,transcriptWords,planCuts,planVisuals,applyOperations,dotGridBMP,type PlanOperation} from './automation-plans.js';
+import {semanticCutPlan} from './automation-semantic.js';
+
+type RecordState={job:AutomationJob;signature:string;before?:Project;operations?:PlanOperation[];afterRevision?:string;semantic?:boolean};
+type CaptionState={signature:string;generated:Caption[];suppressed?:string};
+interface Dependencies {
+ root:string;cache:string;read:(id:string)=>Promise<Project>;save:typeof storage.saveProject;settings:()=>Promise<AISettings>;
+ transcribe:typeof ai.transcribe;analyze:typeof ai.analyze;inspect:typeof inspectFrames;
+ semantic:typeof semanticCutPlan;register:(media:Media)=>Promise<Media>;
+}
+const hash=(x:unknown)=>createHash('sha256').update(JSON.stringify(x)).digest('hex');
+const active=(j:AutomationJob)=>j.status==='queued'||j.status==='running';
+const safe=(id:string)=>storage.safeId(id);
+export function createAutomationEngine(overrides:Partial<Dependencies>={}){
+ const d:Dependencies={root:path.join(storage.DATA_DIR,'automation'),cache:storage.CACHE_DIR,read:storage.readProject,save:storage.saveProject,settings:storage.readAISettings,transcribe:ai.transcribe,analyze:ai.analyze,inspect:inspectFrames,semantic:semanticCutPlan,register:storage.registerMedia,...overrides};
+ const records=new Map<string,RecordState>(),controllers=new Map<string,AbortController>(),timers=new Map<string,NodeJS.Timeout>(),persisting=new Map<string,Promise<unknown>>();const pending:RecordState[]=[];const observedProjects=new Set<string>();const events=new EventEmitter();events.setMaxListeners(0);let pumping:Promise<void>|undefined,closed=false;
+ const jobPath=(id:string)=>path.join(d.root,'jobs',safe(id)+'.json'),captionPath=(id:string)=>path.join(d.root,'captions',safe(id)+'.json');
+ async function json<T>(file:string,fallback:T):Promise<T>{try{return JSON.parse(await fs.readFile(file,'utf8'))}catch{return fallback;}}
+ async function write(file:string,value:unknown){await fs.mkdir(path.dirname(file),{recursive:true});await storage.atomicJSON(file,value);}
+ async function persist(r:RecordState){const snapshot=structuredClone(r),previous=persisting.get(r.job.id)||Promise.resolve(),next=previous.catch(()=>{}).then(()=>write(jobPath(r.job.id),snapshot));persisting.set(r.job.id,next);await next;if(persisting.get(r.job.id)===next)persisting.delete(r.job.id);}
+ async function touch(r:RecordState){r.job.updatedAt=new Date().toISOString();events.emit('job',structuredClone(r.job));await persist(r);}
+ async function load(id:string){safe(id);if(records.has(id))return records.get(id)!;const r=await json<RecordState|undefined>(jobPath(id),undefined);if(!r)throw Object.assign(Error('Automation job not found.'),{status:404});if(active(r.job)){r.job.status='failed';r.job.error='The app closed before this job finished. Retry from the project.';}records.set(id,r);return r;}
+ async function prune(projectId:string){const dir=path.join(d.root,'jobs'),files=await fs.readdir(dir).catch(()=>[]);const entries=(await Promise.all(files.filter(f=>f.endsWith('.json')).map(async name=>({name,record:await json<RecordState|undefined>(path.join(dir,name),undefined)})))).filter(x=>x.record?.job.projectId===projectId).sort((a,b)=>b.record!.job.createdAt.localeCompare(a.record!.job.createdAt));for(const entry of entries.slice(50)){if(active(entry.record!.job))continue;await fs.rm(path.join(dir,entry.name),{force:true});records.delete(entry.record!.job.id);}for(const [id,r] of records){if(records.size<=200)break;if(!active(r.job))records.delete(id);}}
+ async function getSettings():Promise<AutomationSettings>{const value=await json<Partial<AutomationSettings>>(path.join(d.root,'settings.json'),{});return {automaticTranscription:value.automaticTranscription!==false};}
+ async function updateSettings(value:unknown){if(!value||typeof value!=='object'||typeof (value as any).automaticTranscription!=='boolean')throw Error('automaticTranscription must be true or false.');const settings={automaticTranscription:(value as AutomationSettings).automaticTranscription};await write(path.join(d.root,'settings.json'),settings);if(!settings.automaticTranscription){for(const timer of timers.values())clearTimeout(timer);timers.clear();for(const r of records.values())if(r.job.automatic&&active(r.job))await cancel(r.job.id);}else for(const id of observedProjects)void d.read(id).then(observe).catch(()=>{});return settings;}
+ async function localSettings(){const s=await d.settings();return {provider:'local',baseUrl:'',model:s.provider==='local'?s.model:process.env.SCENEFORGE_DEFAULT_MODEL||process.env.SCENEFORGE_WHISPER_MODEL||'',language:s.language||'auto',localCommand:s.provider==='local'?s.localCommand:undefined} satisfies AISettings;}
+ async function sourceCaptions(media:Media,settings:AISettings,signal:AbortSignal,progress:(n:number)=>void){
+  signal.throwIfAborted();const info=await fs.stat(media.path);const model=settings.model?await fs.stat(settings.model).catch(()=>undefined):undefined;
+  const key=hash({version:2,path:media.path,size:info.size,mtime:info.mtimeMs,model:settings.model,modelSize:model?.size,modelMtime:model?.mtimeMs,language:settings.language,command:settings.localCommand});
+  const file=path.join(d.cache,'automatic-transcripts',key+'.json'),cached=await json<{captions:Caption[]}|undefined>(file,undefined);if(cached){progress(1);return cached.captions;}
+  const result=await d.transcribe(media,settings,d.cache,{signal,progress});signal.throwIfAborted();await write(file,result);return result.captions;
+ }
+ async function transcribeIntoProject(r:RecordState,signal:AbortSignal){
+  const before=await d.read(r.job.projectId),signature=speechSignature(before),windows=narrationWindows(before);if(!windows.length)throw Error('Add an audible narration, camera or screen clip to transcribe.');
+  const ids=[...new Set(windows.map(w=>w.clip.mediaId))],sources=new Map<string,Caption[]>(),settings=await localSettings();r.signature=signature;
+  for(const [i,id] of ids.entries()){signal.throwIfAborted();const media=before.media.find(m=>m.id===id)!;r.job.message=`Transcribing locally: ${media.name} (${i+1}/${ids.length})`;await touch(r);
+   sources.set(id,await sourceCaptions(media,settings,signal,n=>{r.job.progress=(i+n)/ids.length*.9;}));
+  }
+  signal.throwIfAborted();const latest=await d.read(before.id);if(speechSignature(latest)!==signature)throw Object.assign(Error('Timeline changed while transcribing. Retry to map the cached transcript to the new edit.'),{status:409});
+  const previous=await json<CaptionState>(captionPath(before.id),{signature:'',generated:[]}),mapped=mapSourceCaptions(latest,sources),merged=mergeAutomaticCaptions(latest.captions,mapped,previous.generated);
+  const candidate={...latest,captions:merged.captions};signal.throwIfAborted();
+  // Save the exact current revision so concurrent user edits are never replaced.
+  if(JSON.stringify(candidate.captions)!==JSON.stringify(latest.captions))await d.save(candidate,{expectedRevision:storage.revision(latest),checkpoint:true});
+  await write(captionPath(before.id),{signature,generated:merged.generated});r.job.captionCount=merged.generated.length;r.job.message=`${merged.generated.length} local captions ready; ${merged.preserved} existing or edited captions preserved.`;return d.read(before.id);
+ }
+ async function background(p:Project):Promise<Media>{const scale=Math.min(1,1920/p.canvas.width,1920/p.canvas.height),width=Math.max(16,Math.round(p.canvas.width*scale)),height=Math.max(16,Math.round(p.canvas.height*scale)),key=`dot-grid-v1-${width}-${height}`,file=path.join(d.root,'assets',key+'.bmp');try{await fs.access(file)}catch{await fs.mkdir(path.dirname(file),{recursive:true});const temp=file+'.'+randomUUID()+'.tmp';try{await fs.writeFile(temp,dotGridBMP(width,height));await fs.rename(temp,file);}finally{await fs.rm(temp,{force:true});}}
+  return d.register({id:key,name:'Proof-first dot grid',path:file,kind:'image',duration:0,width,height,hasAudio:false});}
+ async function run(r:RecordState,signal:AbortSignal){
+  r.job.status='running';r.job.message=r.job.kind==='transcription'?'Preparing local transcription…':'Reading project and timed transcript…';await touch(r);
+  if(r.job.kind==='transcription'){await transcribeIntoProject(r,signal);if(signal.aborted)return;r.job.status='complete';r.job.progress=1;await touch(r);return;}
+  let p=await d.read(r.job.projectId);if(r.job.kind==='auto-cut'&&!transcriptWords(p).length)p=await transcribeIntoProject(r,signal);signal.throwIfAborted();r.before=structuredClone(p);r.signature=speechSignature(p);
+  let plan;
+  if(r.job.kind==='auto-cut'){
+   r.job.message='Checking local audio against word timings…';r.job.progress=.35;await touch(r);const quiet=await d.analyze(p,'silence',await localSettings(),undefined,signal);plan=planCuts(p,quiet.suggestions);
+   if(r.semantic){r.job.message='Claude is proposing narrative cuts for review…';r.job.progress=.65;await touch(r);const semantic=await d.semantic(p,signal);plan.changes.push(...semantic.changes);plan.operations.push(...semantic.operations);plan.warnings.push(...semantic.warnings);}
+  }else plan=planVisuals(p,await background(p));
+  signal.throwIfAborted();r.operations=plan.operations;r.job.proposal={summary:r.job.kind==='auto-cut'?`${plan.changes.length} transcript-backed cut proposals`:`${plan.changes.length} proof-first visual treatments`,changes:plan.changes,warnings:plan.warnings,baseRevision:storage.revision(p),beforeDuration:projectDuration(p),afterDuration:projectDuration(applyOperations(p,plan.operations,plan.changes.filter(c=>c.selected).map(c=>c.id)))};
+  r.job.status='ready';r.job.progress=1;r.job.message='Review the proposed changes and preview before applying.';await touch(r);
+ }
+ function pump(){if(pumping||closed)return;pumping=(async()=>{while(pending.length&&!closed){const r=pending.shift()!;if(r.job.status!=='queued')continue;const controller=new AbortController();controllers.set(r.job.id,controller);try{await run(r,controller.signal);}catch(e){if((r.job as AutomationJob).status!=='cancelled'){r.job.status=(e as any).status===409?'conflict':'failed';r.job.error=(e as Error).message;r.job.message=r.job.error;if(r.job.automatic){const state=await json<CaptionState>(captionPath(r.job.projectId),{signature:'',generated:[]});await write(captionPath(r.job.projectId),{...state,suppressed:r.signature});}await touch(r);}}finally{controllers.delete(r.job.id);}}})().finally(()=>{pumping=undefined;if(pending.length&&!closed)pump();});}
+ async function enqueue(projectId:string,kind:AutomationKind,automatic=false,semantic=false){if(closed)throw Error('Automation service is shutting down.');safe(projectId);const existing=[...records.values()].find(r=>r.job.projectId===projectId&&r.job.kind===kind&&active(r.job));if(existing)return structuredClone(existing.job);
+  const p=await d.read(projectId);const raced=[...records.values()].find(r=>r.job.projectId===projectId&&r.job.kind===kind&&active(r.job));if(raced)return structuredClone(raced.job);if(pending.length>=20)throw Error('Automation queue is full; wait for a job to finish.');const now=new Date().toISOString(),r:RecordState={job:{id:randomUUID(),projectId,kind,status:'queued',progress:0,message:'Queued for local processing.',createdAt:now,updatedAt:now,automatic,applied:false,undone:false},signature:speechSignature(p),semantic};records.set(r.job.id,r);await persist(r);await prune(projectId);pending.push(r);pump();return structuredClone(r.job);}
+ async function queueTranscription(projectId:string,options:{force?:boolean;automatic?:boolean}={}){
+  const p=await d.read(projectId);if(!narrationWindows(p).length)throw Error('No audible speech source is present.');const signature=speechSignature(p),state=await json<CaptionState>(captionPath(projectId),{signature:'',generated:[]});
+  if(options.automatic&&(state.signature===signature||state.suppressed===signature))return undefined;
+  return enqueue(projectId,'transcription',options.automatic===true);
+ }
+ function observe(p:Project){observedProjects.add(p.id);if(observedProjects.size>30)observedProjects.delete(observedProjects.values().next().value!);if(closed||!narrationWindows(p).length)return;if([...records.values()].some(r=>r.job.projectId===p.id&&r.job.kind!=='transcription'&&(active(r.job)||r.job.status==='ready'&&r.signature===speechSignature(p))))return;const old=timers.get(p.id);if(old)clearTimeout(old);const timer=setTimeout(()=>{timers.delete(p.id);void getSettings().then(s=>s.automaticTranscription?queueTranscription(p.id,{automatic:true}):undefined).catch(()=>{});},800);timer.unref();timers.set(p.id,timer);}
+ async function quickAction(projectId:string,request:QuickActionRequest){if(!request||!['auto-cut','visualize'].includes(request.kind)||request.semantic!==undefined&&typeof request.semantic!=='boolean')throw Error('Choose auto-cut or visualize.');return enqueue(projectId,request.kind,false,request.semantic===true);}
+ async function get(id:string){return structuredClone((await load(id)).job);}
+ async function list(projectId:string){safe(projectId);const files=await fs.readdir(path.join(d.root,'jobs')).catch(()=>[]),all:AutomationJob[]=[];for(const file of files.filter(f=>f.endsWith('.json'))){const r=await load(file.slice(0,-5)).catch(()=>undefined);if(r?.job.projectId===projectId)all.push(structuredClone(r.job));}return all.sort((a,b)=>a.createdAt.localeCompare(b.createdAt)).slice(-50);}
+ async function cancel(id:string){const r=await load(id);if(active(r.job)||r.job.status==='ready'){r.job.status='cancelled';r.job.message='Cancelled; no proposal was applied.';controllers.get(id)?.abort();if(r.job.kind==='transcription'){const state=await json<CaptionState>(captionPath(r.job.projectId),{signature:'',generated:[]});await write(captionPath(r.job.projectId),{...state,suppressed:r.signature});}await touch(r);}return structuredClone(r.job);}
+ const selected=(r:RecordState,ids:unknown)=>{if(!Array.isArray(ids)||!ids.length||!ids.every(id=>typeof id==='string')||new Set(ids).size!==ids.length)throw Error('Choose at least one proposed change.');const valid=new Set(r.job.proposal?.changes.map(c=>c.id));if(ids.some(id=>!valid.has(id)))throw Error('Unknown proposal change.');return ids as string[];};
+ async function apply(id:string,changeIds:unknown):Promise<AutomationMutation>{const r=await load(id);if(r.job.status!=='ready'||!r.before||!r.operations||!r.job.proposal)throw Error('This proposal is not ready to apply.');const ids=selected(r,changeIds),current=await d.read(r.job.projectId);if(storage.revision(current)!==r.job.proposal.baseRevision)throw Object.assign(Error('Project changed since this proposal. Generate a fresh proposal before applying.'),{status:409});
+  const candidate=applyOperations(r.before,r.operations,ids),saved=await d.save(candidate,{expectedRevision:r.job.proposal.baseRevision,checkpoint:true});const captionState=await json<CaptionState>(captionPath(saved.id),{signature:'',generated:[]});await write(captionPath(saved.id),{...captionState,signature:speechSignature(saved)});r.afterRevision=storage.revision(saved);r.job.applied=true;r.job.status='complete';r.job.message=`Applied ${ids.length} changes. Review playback; Undo is available.`;await touch(r);return {job:structuredClone(r.job),project:saved};}
+ async function undo(id:string):Promise<AutomationMutation>{const r=await load(id);if(!r.job.applied||r.job.undone||!r.before||!r.afterRevision)throw Error('This job has no applied edit to undo.');const current=await d.read(r.job.projectId);if(storage.revision(current)!==r.afterRevision)throw Object.assign(Error('The project changed after this edit. Use Version history rather than replacing newer work.'),{status:409});const saved=await d.save(r.before,{expectedRevision:r.afterRevision,checkpoint:true});const captionState=await json<CaptionState>(captionPath(saved.id),{signature:'',generated:[]});await write(captionPath(saved.id),{...captionState,signature:speechSignature(saved)});r.job.undone=true;r.job.message='Edit undone.';await touch(r);return {job:structuredClone(r.job),project:saved};}
+ async function preview(id:string,phase:string,time:number,changeIds?:string[]){const r=await load(id);if(!r.before||!r.operations||!r.job.proposal)throw Error('Wait for a completed proposal.');if(phase!=='before'&&phase!=='after')throw Error('Preview phase must be before or after.');if(!Number.isFinite(time)||time<0)throw Error('Preview time must be nonnegative.');const ids=changeIds??r.job.proposal.changes.filter(c=>c.selected).map(c=>c.id);if(ids.length)selected(r,ids);const p=phase==='before'?r.before:applyOperations(r.before,r.operations,ids);return (await d.inspect(p,[Math.min(time,Math.max(0,projectDuration(p)-1/p.canvas.fps))],d.cache,{width:640}))[0];}
+ async function shutdown(){closed=true;for(const timer of timers.values())clearTimeout(timer);timers.clear();for(const r of records.values())if(active(r.job))await cancel(r.job.id);await pumping;await Promise.allSettled([...persisting.values()]);}
+ return {events,getSettings,updateSettings,observe,queueTranscription,quickAction,get,list,cancel,apply,undo,preview,shutdown};
+}
+export const automation=createAutomationEngine();

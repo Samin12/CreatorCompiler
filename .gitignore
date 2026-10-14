@@ -1,0 +1,43 @@
+# Local investigation contains private paths, projects, screenshots and extracted code.
+/research/
+/evidence/
+/AGENTS.md
+
+# Dependencies, generated applications, downloaded models and runtime sources.
+node_modules/
+**/.local/
+/app/dist/
+/app/server-dist/
+/app/data/
+/app/runtime/
+/release/
+/coverage/
+/build/
+/dist/
+/package-lock.json
+
+# Local configuration, credentials, recordings and diagnostics.
+.env
+.env.*
+!.env.example
+*.log
+*.pid
+*.tmp
+*.sqlite
+*.sqlite3
+*.db
+*.borumi
+*.mp4
+*.mov
+*.webm
+*.wav
+*.mp3
+*.m4a
+*.gguf
+*.bin
+*.zip
+*.dmg
+*.app/
+.DS_Store
+.idea/
+.vscode/

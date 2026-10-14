@@ -1,0 +1,70 @@
+.transcript-editor {
+  --transcript-selection: hsl(213 97% 87%);
+  --transcript-current: hsl(212 96% 78%);
+  --transcript-muted: #737373;
+  --transcript-danger: #b91c1c;
+  --transcript-danger-hover: #fef2f2;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  background: var(--background);
+  color: var(--foreground);
+  outline: none;
+}
+:root[data-theme=dark] .transcript-editor {
+  --transcript-selection: hsl(226 71% 40%);
+  --transcript-current: hsl(224 76% 48%);
+  --transcript-muted: #a3a3a3;
+  --transcript-danger: #fca5a5;
+  --transcript-danger-hover: #450a0a;
+}
+.transcript-editor:focus-visible { box-shadow: inset 0 0 0 2px #3b82f6; }
+.transcript-editor .transcript-help {
+  font-size: 11px;
+  line-height: 1.5;
+  padding: 10px 14px;
+  color: var(--transcript-muted);
+  border-bottom: 1px solid var(--line);
+}
+.transcript-editor .transcript-word-list {
+  overflow: auto;
+  min-height: 50px;
+  flex: 1;
+  padding: 5px 14px;
+  touch-action: pan-y;
+  user-select: none;
+}
+.transcript-editor .transcript-sentence { padding: 10px 0; border-bottom: 1px solid var(--line); }
+.transcript-editor .transcript-stamp { font-size: 10px; color: var(--transcript-muted); font-variant-numeric: tabular-nums; }
+.transcript-editor .transcript-sentence p { font-size: 14px; line-height: 1.9; margin: 3px 0; color: inherit; overflow-wrap: anywhere; }
+.transcript-editor .transcript-word { cursor: text; border-radius: 3px; padding: 2px 0; color: inherit; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
+.transcript-editor .transcript-word:hover { background: var(--input); }
+.transcript-editor .transcript-word[data-selected=true] { background: var(--transcript-selection); color: var(--foreground); box-shadow: none; }
+.transcript-editor .transcript-word.current { background: var(--transcript-current); color: var(--foreground); box-shadow: none; }
+.transcript-editor .transcript-word.untimed { border-bottom: 1px dotted currentColor; }
+.transcript-editor .transcript-selection {
+  border-top: 1px solid var(--line);
+  padding: 12px 14px;
+  display: flex;
+  gap: 7px;
+  flex-direction: column;
+  font-size: 11px;
+  line-height: 1.5;
+  background: var(--secondary);
+  color: var(--foreground);
+}
+.transcript-editor .transcript-selection strong { font-size: 11px; font-variant-numeric: tabular-nums; }
+.transcript-editor .transcript-selection > span { color: var(--transcript-muted); }
+.transcript-editor .transcript-selection .button { align-self: flex-start; }
+.transcript-editor .transcript-selection .button.danger { color: var(--transcript-danger); }
+.transcript-editor .transcript-selection .button.danger:hover { background: var(--transcript-danger-hover); }
+.transcript-editor .transcript-selection .button:focus-visible { outline: 2px solid #3b82f6; outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) {
+  .transcript-editor .button { transition: none; }
+}
+@media (forced-colors: active) {
+  .transcript-editor .transcript-word[data-selected=true],
+  .transcript-editor .transcript-word.current { background: Highlight; color: HighlightText; forced-color-adjust: none; }
+}

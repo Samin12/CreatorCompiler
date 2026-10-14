@@ -1,0 +1,47 @@
+{
+  "name": "sceneforge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Local-first script, recording and video editing studio",
+  "scripts": {
+    "dev": "concurrently -k \"tsx watch server/index.ts\" \"vite --host 127.0.0.1\"",
+    "dev:server": "tsx server/index.ts",
+    "dev:web": "vite --host 127.0.0.1",
+    "build": "tsc --noEmit && vite build",
+    "start": "tsx server/index.ts",
+    "test": "tsx --test server/*.test.ts src/*.test.ts scripts/*.test.mjs",
+    "desktop": "electron desktop/main.cjs",
+    "mcp": "tsx server/mcp.ts",
+    "build:server": "node scripts/bundle-server.mjs",
+    "build:all": "npm run build && npm run build:server",
+    "package": "node scripts/package.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "express": "^5.0.0",
+    "iconoir-react": "^7.11.0",
+    "lucide-react": "^0.468.0",
+    "multer": "^2.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@electron/osx-sign": "2.7.1",
+    "@electron/packager": "^20.3.0",
+    "@types/express": "^5.0.0",
+    "@types/multer": "^2.0.0",
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "latest",
+    "concurrently": "^9.0.0",
+    "electron": "^44.7.1",
+    "esbuild": "^0.28.2",
+    "tsx": "^4.0.0",
+    "typescript": "latest",
+    "vite": "latest"
+  },
+  "main": "desktop/main.cjs"
+}
