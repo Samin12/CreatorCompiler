@@ -18,3 +18,7 @@ export interface AutomationJob {
 }
 export interface QuickActionRequest { kind:'auto-cut'|'visualize'; semantic?:boolean; sceneId?:string; }
 export interface AutomationMutation { job:AutomationJob; project:import('./types.js').Project; }
+export interface CutReview {
+ before:import('./types.js').Project;after:import('./types.js').Project;
+ joins:Array<{id:string;label:string;originalStart:number;originalEnd:number;editedTime:number}>;
+}

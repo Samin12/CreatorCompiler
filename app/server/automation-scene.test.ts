@@ -32,6 +32,21 @@ test('scene planning excludes other scenes and retains absolute source timing',(
  assert.ok(parts.every(c=>c.clip.effectTiming?.sourceOut===20));assert.equal(new Set(parts.map(c=>c.clip.id)).size,3);
 });
 
+test('styling a video leaves exported chapter graphics optional until explicitly selected',async()=>{
+ const s=await setup();try{
+  const job=await s.engine.quickAction(s.project.id,{kind:'visualize'}),done=await ready(s.engine,job.id);
+  const graphics=done.proposal!.changes.filter(change=>change.category==='chapter'||change.category==='proof');assert.ok(graphics.length>0);assert.ok(graphics.every(change=>!change.selected));
+  const applied=await s.engine.apply(job.id,done.proposal!.changes.filter(change=>change.selected).map(change=>change.id));assert.equal(applied.project.elements.length,0);
+ }finally{await s.close();}
+});
+
+test('cut review returns original and selected edited timelines with aligned join times without applying them',async()=>{
+ const s=await setup();try{
+  const before=structuredClone(s.project),job=await s.engine.quickAction(before.id,{kind:'auto-cut',sceneId:'second'}),done=await ready(s.engine,job.id),cut=done.proposal!.changes.find(change=>change.category==='silence')!;
+  const review=await s.engine.review(job.id,[cut.id]);assert.deepEqual(review.before,before);assert.ok(Math.abs(review.after.scenes[1].duration-8.3333333333)<1e-6);assert.equal(review.joins.length,1);assert.ok(Math.abs(review.joins[0].originalStart-14.1666666667)<1e-6);assert.ok(Math.abs(review.joins[0].editedTime-14.1666666667)<1e-6);assert.deepEqual(s.project,before);
+ }finally{await s.close();}
+});
+
 test('per-scene Auto-cut scopes analysis and cuts while retaining scene IDs and undo',async()=>{
  const s=await setup();try{
  const before=structuredClone(s.project),job=await s.engine.quickAction(before.id,{kind:'auto-cut',sceneId:'second',semantic:true}),done=await ready(s.engine,job.id);

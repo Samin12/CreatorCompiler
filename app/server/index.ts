@@ -161,7 +161,17 @@ app.post('/api/ai/voice-follow',express.raw({type:'audio/wav',limit:'350kb'}),ro
 }));
 app.put('/api/ai/settings',route(async(req,res)=>res.json(await storage.saveAISettings(req.body))));
 app.post('/api/ai/transcribe',route(async(req,res)=>{const p=await storage.readProject(req.body.projectId);const m=p.media.find(m=>m.id===req.body.mediaId);if(!m)throw new Error('Media is not in this project');return res.json(await ai.transcribe(m,await storage.readAISettings(),storage.CACHE_DIR));}));
-app.post('/api/ai/analyze',route(async(req,res)=>{if(!['silence','fillers','script'].includes(req.body.kind))throw new Error('Unknown analysis kind');return res.json(await ai.analyze(await storage.readProject(req.body.projectId),req.body.kind,await storage.readAISettings(),req.body.prompt));}));
+app.post('/api/ai/analyze',route(async(req,res)=>{
+ if(!['silence','fillers','script'].includes(req.body.kind))throw Object.assign(Error('Unknown analysis kind'),{status:400});
+ const project=await storage.readProject(req.body.projectId),{sceneId}=req.body;
+ if(sceneId!==undefined){
+  if(req.body.kind!=='script'||typeof sceneId!=='string'||!sceneId.trim())throw Object.assign(Error('Choose a valid script scene.'),{status:400});
+  const scene=project.scenes.find(scene=>scene.id===sceneId);
+  if(!scene)throw Object.assign(Error('This scene no longer exists. Reopen script assistance.'),{status:404});
+  project.scenes=[scene];
+ }
+ return res.json(await ai.analyze(project,req.body.kind,await storage.readAISettings(),req.body.prompt));
+}));
 const dist=path.resolve(import.meta.dirname,'../dist');
 app.get('/api/automation/settings',route(async(_,res)=>res.json(await automation.getSettings())));
 app.put('/api/automation/settings',route(async(req,res)=>{const settings=await automation.updateSettings(req.body);observed.clear();return res.json(settings);}));
@@ -173,6 +183,7 @@ app.delete('/api/automation/:id',route(async(req,res)=>res.json(await automation
 app.post('/api/automation/:id/apply',route(async(req,res)=>res.json(await automation.apply(param(req),req.body.changeIds))));
 app.post('/api/automation/:id/undo',route(async(req,res)=>res.json(await automation.undo(param(req)))));
 app.get('/api/automation/:id/preview',route(async(req,res)=>{const ids=typeof req.query.changes==='string'?req.query.changes.split(',').filter(Boolean):undefined;const frame=await automation.preview(param(req),String(req.query.phase||'after'),Number(req.query.time)||0,ids);return res.sendFile(frame.path);}));
+app.post('/api/automation/:id/review',route(async(req,res)=>res.json(await automation.review(param(req),req.body.changeIds))));
 app.get('/api/agent/status',route(async(req,res)=>res.json(await agentChat.agentStatus(req.query.refresh==='1'))));
 app.get('/api/projects/:id/agent-chat',route(async(req,res)=>{await storage.readProject(param(req));return res.json({jobs:await agentChat.listAgentJobs(param(req))});}));
 app.post('/api/projects/:id/agent-chat',route(async(req,res)=>res.json(await agentChat.startAgentChat(await storage.readProject(param(req)),req.body,`http://127.0.0.1:${PORT}/api`))));

@@ -4,6 +4,7 @@ import App from './App';
 import './styles.css';
 import './original-theme.css';
 import './timeline-interactions.css';
+import './interaction-theme.css';
 import {initializeAppearance} from './appearance';
 initializeAppearance();
 

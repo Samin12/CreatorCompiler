@@ -8,13 +8,20 @@ import {spawn} from 'node:child_process';
 import {createHash} from 'node:crypto';
 const delay=(ms:number)=>new Promise(r=>setTimeout(r,ms));
 async function freePort(){const server=net.createServer();await new Promise<void>(r=>server.listen(0,'127.0.0.1',r));const port=(server.address() as net.AddressInfo).port;await new Promise<void>(r=>server.close(()=>r()));return port;}
-test('ready answers without probing, autosave can opt into a minimal echo whose revision the client reproduces, and abandoned previews are not errors',{timeout:30000},async()=>{
+test('ready answers without probing, autosave can opt into a minimal echo whose revision the client reproduces, and abandoned previews are not errors',{timeout:30000},async(t)=>{
  const dir=await fs.mkdtemp(path.join(os.tmpdir(),'sceneforge-project-api-')),port=await freePort(),base=`http://127.0.0.1:${port}/api`;
  const child=spawn(process.execPath,['--import','tsx','server/index.ts'],{cwd:path.resolve(import.meta.dirname,'..'),env:{...process.env,SCENEFORGE_PORT:String(port),SCENEFORGE_DATA_DIR:path.join(dir,'data')},stdio:'pipe'});let stderr='';child.stderr?.on('data',b=>stderr+=b);child.stdout?.resume();
  try{
   let ready:any;for(let i=0;i<200&&!ready;i++){try{ready=await (await fetch(base+'/ready')).json();}catch{await delay(25);}}assert.deepEqual(ready,{application:'SceneForge',version:'0.1.0'},stderr);
   const health=await (await fetch(base+'/health')).json();assert.equal(health.application,'SceneForge');assert.equal(typeof health.hardwareEncode,'boolean');assert.ok(health.dataDir);
   const created=await (await fetch(base+'/projects',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:'Minimal echo'})})).json();
+  await t.test('project summaries distinguish planned duration from a populated timeline',async()=>{
+   const draft=await (await fetch(base+'/projects',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:'Planned script'})})).json();
+   draft.scenes[0].duration=60;
+   assert.equal((await fetch(base+'/projects/'+draft.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(draft)})).status,200);
+   const summary=(await (await fetch(base+'/projects')).json()).find((item:any)=>item.id===draft.id);
+   assert.equal(summary.duration,60);assert.equal(summary.clipCount,0);
+  });
   const opened=await fetch(base+'/projects/'+created.id),etag=opened.headers.get('etag')!,project=await opened.json();assert.deepEqual(project,created);
   const edited={...project,name:'Renamed',notes:'kept'},put=await fetch(base+'/projects/'+project.id,{method:'PUT',headers:{'Content-Type':'application/json','If-Match':etag,'Prefer':'return=minimal'},body:JSON.stringify(edited)});
   const minimal=await put.json(),revision=put.headers.get('etag')!.replaceAll('"','');assert.equal(put.status,200);assert.deepEqual(Object.keys(minimal),['minimal','id','updatedAt']);assert.equal(minimal.minimal,true);assert.equal(minimal.id,project.id);
