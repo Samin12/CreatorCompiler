@@ -15,6 +15,7 @@ import * as recordings from './recordings.js';
 import {followSpeech} from './voice-follow.js';
 import {visionPreview,getVisionCapabilities} from './vision.js';
 import {toolDefinitions} from './mcp.js';
+import {readMCPSettings,saveMCPSettings} from './mcp-settings.js';
 import * as agentChat from './agent-chat.js';
 import {automation} from './automation.js';
 import {planBorumiRoundtrip,exportBorumiRoundtrip} from './borumi-roundtrip.js';
@@ -148,6 +149,8 @@ app.get('/api/jobs',route(async(_,res)=>{const durable=await exportsStore.list()
 app.get('/api/jobs/:id',route(async(req,res)=>{try{return res.json(await exportsStore.get(param(req)));}catch(e){if((e as {status?:number}).status!==404)throw e;}const j=media.getJob(param(req));return res.status(j?200:404).json(j||{error:'Job not found'});}));
 app.delete('/api/jobs/:id',route(async(req,res)=>{try{return res.json(await exportsStore.cancel(param(req)));}catch(e){if((e as {status?:number}).status!==404)throw e;}const j=media.cancelJob(param(req));return res.status(j?200:404).json(j||{error:'Job not found'});}));
 app.get('/api/jobs/:id/download',downloadExport);
+app.get('/api/mcp/settings',route(async(_,res)=>res.json(await readMCPSettings(storage.DATA_DIR))));
+app.put('/api/mcp/settings',route(async(req,res)=>res.json(await saveMCPSettings(storage.DATA_DIR,req.body))));
 app.get('/api/ai/settings',route(async(_,res)=>res.json(storage.redactSettings(await storage.readAISettings()))));
 // Follow mode posts a batch every few seconds while recording; the joined script is reparsed only when the committed revision changes.
 const followScripts=new Map<string,{revision:string;script:string}>();

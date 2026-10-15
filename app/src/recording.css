@@ -6,7 +6,7 @@
 .capture-source{border-bottom:1px solid var(--line);padding:8px 12px 12px}.capture-source>header{display:flex;align-items:center;gap:8px;min-height:36px;margin-bottom:8px}.capture-source>header>strong{font-size:12px;line-height:16px;font-weight:700;white-space:nowrap}.capture-source:not(.enabled)>header>strong{opacity:.65}.capture-source:not(.enabled){padding-bottom:8px}.capture-source:not(.enabled)>header{margin-bottom:0}
 .capture-switch{display:inline-flex;flex-shrink:0;align-items:center;width:36px;height:20px;border-radius:20px;padding:2px;background:#d4d4d4;border:0;cursor:pointer;transition:background .15s}.capture-switch>span{display:block;width:16px;height:16px;border-radius:50%;background:white;box-shadow:0 1px 3px #0003;transition:transform .15s}.capture-switch[aria-checked=true]{background:#16a34a}.capture-switch[aria-checked=true]>span{transform:translateX(16px)}.capture-switch:disabled{cursor:default;opacity:.6}
 .capture-device{position:relative;min-width:0;flex:1;margin-left:auto;display:flex;justify-content:flex-end}.capture-device select{appearance:none;background:transparent!important;border:0!important;box-shadow:none!important;padding:6px 18px 6px 0;width:100%;min-width:0;text-align:right;text-overflow:ellipsis;font:inherit;font-size:12px;color:var(--foreground);cursor:pointer}.capture-device>svg{position:absolute;right:0;top:50%;transform:translateY(-50%);pointer-events:none}.capture-device select option{background:var(--background);color:var(--foreground)}.capture-settings-button{flex-shrink:0;display:grid;place-items:center;height:32px;width:32px;border-radius:4px;color:var(--foreground)}.capture-settings-button:hover,.capture-settings-button.selected{background:var(--input)}.capture-settings-button:disabled{opacity:.45}.capture-screen-choice{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex:1;min-width:0;font-size:12px;margin-left:auto}.capture-screen-choice>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.capture-screen-choice:disabled{opacity:.5}.capture-system-label{display:flex;gap:7px;align-items:center;font-size:11px;color:var(--muted);margin-left:auto;white-space:nowrap}
-.capture-video{position:relative;height:200px;background:var(--input);border-radius:8px;overflow:hidden;min-height:140px}.capture-video.has-stream{background:#090909}.capture-video>video{display:block;width:100%;height:100%;object-fit:contain}.capture-preview-empty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:11px;padding:20px;color:var(--muted);text-align:center}.capture-preview-empty>span{max-width:310px;font-size:11px;line-height:1.5}.capture-preview-empty>.button{font-size:11px;padding:6px 10px;min-height:29px;background:var(--background);color:var(--foreground);border-color:var(--line)}.capture-resolution{position:absolute;right:0;bottom:0;background:#000b;color:white;padding:4px 7px;font-size:11px;font-variant-numeric:tabular-nums;border-top-left-radius:4px}.capture-live{position:absolute;left:9px;top:9px;display:flex;gap:5px;align-items:center;background:#0007;color:white;font-size:8px;letter-spacing:1px;padding:3px 5px;border-radius:3px}.capture-live>i{height:5px;width:5px;background:#4ade80;border-radius:50%}
+.capture-video{position:relative;height:200px;background:var(--input);border-radius:8px;overflow:hidden;min-height:140px}.capture-video.has-stream{background:#090909}.capture-video>video{display:block;width:100%;height:100%;object-fit:contain}.capture-preview-empty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:11px;padding:20px;color:var(--muted);text-align:center}.capture-preview-empty>span{max-width:310px;font-size:11px;line-height:1.5}.capture-preview-empty>.button{font-size:11px;padding:6px 10px;min-height:29px;background:var(--background);color:var(--foreground);border-color:var(--line)}.capture-resolution{position:absolute;right:0;bottom:0;background:#000b;color:white;padding:4px 7px;font-size:11px;font-variant-numeric:tabular-nums;border-top-left-radius:4px}
 .capture-audio{padding:7px 0 1px}.capture-audio>[role=meter]{position:relative;width:100%;height:40px}.capture-audio canvas{display:block;width:100%;height:100%}.capture-flatline{position:absolute;left:0;right:0;top:50%;height:1px;background:#60a5fa;opacity:.75}.capture-source-hint{display:block;color:var(--muted);font-size:11px;line-height:1.45;min-height:16px;margin-top:7px}.capture-inline-action{font-size:10px;text-decoration:underline;text-underline-offset:3px;margin-top:6px;color:var(--foreground)}
 .capture-settings{display:flex;flex-direction:column;gap:9px;background:var(--secondary);border:1px solid var(--line);padding:12px;border-radius:5px;margin-bottom:12px;font-size:11px}.capture-settings>label{display:flex;align-items:center;justify-content:space-between;gap:12px}.capture-settings select{background:var(--background);color:var(--foreground);border:1px solid var(--line);border-radius:4px;font-size:11px;padding:5px;width:130px}.capture-settings .capture-check{justify-content:flex-start;gap:7px}.capture-check input{accent-color:#16a34a}.capture-settings small,.capture-settings p{font-size:10px;line-height:1.6;color:var(--muted);margin:0}.capture-settings>.button{font-size:11px;align-self:flex-start;min-height:30px}.capture-source button:focus-visible,.capture-source select:focus-visible{outline:2px solid #3b82f6;outline-offset:3px}
 .recording-main{position:relative;min-height:0;overflow:auto;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:45px 35px 60px;background:var(--input)}.recording-readiness{width:min(100%,400px);margin:auto}.recording-readiness h1{font-size:24px;font-weight:500;letter-spacing:0;line-height:32px;margin:0 0 32px;white-space:nowrap}.recording-instructions{display:flex;flex-direction:column;gap:24px}.recording-instructions p{display:flex;align-items:center;gap:15px;margin:0;font-size:14px;line-height:20px}.recording-check{display:grid;place-items:center;width:17px;height:17px;border-radius:50%;background:#5c5c5c;flex-shrink:0;color:white}.recording-check svg{stroke:currentColor}.recording-controls{display:flex;align-items:center;gap:8px;margin-top:40px;flex-wrap:wrap}.recording-controls>.button{padding:14px 16px;font-size:14px;min-height:48px;gap:8px;font-weight:500;white-space:nowrap}.record-ring{display:block;width:14px;height:14px;border:1.5px solid currentColor;border-radius:50%;position:relative}.record-ring:after{content:'';position:absolute;inset:2px;background:currentColor;border-radius:50%}.recording-import{font-size:14px;color:var(--foreground);font-weight:500;padding:10px 0;white-space:nowrap}.recording-import:hover{text-decoration:underline;text-underline-offset:4px}.recording-ready-hint{font-size:10px;color:var(--muted);margin-top:18px;line-height:1.5}.recording-storage-note{position:absolute;bottom:15px;left:25px;right:25px;display:flex;justify-content:center;gap:6px;align-items:center;color:var(--muted);font-size:9px;margin:0;text-align:center}.recording-storage-note>svg{flex-shrink:0}
@@ -44,35 +44,38 @@
 [data-theme=dark] .capture-source-error{border-color:#7f1d1d;background:rgba(127,29,29,.25)}
 [data-theme=dark] .capture-source-error p{color:#fca5a5}
 
-/* Record panel: one live stage composed like the final video, then compact source rows. */
-.capture-stage{position:relative;flex-shrink:0;margin:12px 12px 4px;aspect-ratio:16/9;border-radius:10px;overflow:hidden;background:#0b0b0b}
-.capture-stage>.capture-video,.capture-stage-fill>.capture-video{position:absolute;inset:0;height:auto;min-height:0;border-radius:0}
-.capture-stage-fill{position:absolute;inset:0}
-.capture-stage-empty{position:absolute;inset:0;display:grid;place-items:center;margin:0;padding:24px;text-align:center;font-size:13px;line-height:1.5;color:#a3a3a3}
-.capture-stage .capture-preview-empty{color:#a3a3a3}
-.capture-preview-empty.compact{gap:6px;padding:8px}
-.capture-preview-empty.compact>span{font-size:11px;color:#d4d4d4}
+/* Record panel, Borumi layout: each source is a row [switch][label]…[device ⌄][gear] with its own live media directly beneath. */
 .capture-sources-fieldset{min-width:0;margin:0;padding:0;border:0}
-.recording-source-panel .capture-source{padding:4px 12px 10px}
-.recording-source-panel .capture-source>header{margin-bottom:0}
-.recording-source-panel .capture-source>:not(header){margin-top:8px;margin-bottom:0}
+.recording-source-panel{overflow-y:auto;overscroll-behavior:contain}
+.recording-source-panel .capture-source{padding:14px 20px 18px;border-bottom:1px solid var(--line)}
+.recording-source-panel .capture-source:not(.enabled){padding-bottom:14px}
 .recording-source-panel .capture-source:last-child{border-bottom:0}
+.recording-source-panel .capture-source>header{gap:10px;min-height:30px;margin-bottom:0}
+.recording-source-panel .capture-source>header>strong{margin-right:auto;font-size:13px;font-weight:600}
+.recording-source-panel .capture-source>:not(header){margin-top:12px;margin-bottom:0}
+.recording-source-panel .capture-switch{width:29px;height:17px;padding:2px}.recording-source-panel .capture-switch>span{width:13px;height:13px}.recording-source-panel .capture-switch[aria-checked=true]>span{transform:translateX(12px)}
+.recording-source-panel .capture-device,.recording-source-panel .capture-screen-choice{flex:0 1 auto;max-width:58%}
+.recording-source-panel .capture-device select{color:var(--muted)}.recording-source-panel .capture-screen-choice{color:var(--muted)}
+.recording-source-panel .capture-settings-button{height:28px;width:28px;color:var(--muted)}
+/* Live pictures: camera fills its 16:9 frame; the screen is letterboxed inside a dark well so the whole capture area stays visible. */
+.capture-media{position:relative;width:100%;aspect-ratio:16/9;border-radius:7px;overflow:hidden;background:#1a1a1a}
+.capture-media>.capture-video{position:absolute;inset:0;height:auto;min-height:0;border-radius:0;background:#1a1a1a}
+.capture-media-camera>.capture-video>video{object-fit:cover}
+.capture-media-screen>.capture-video>video,.capture-media-screen .capture-native-frame{object-fit:contain;background:#1a1a1a}
+.capture-media .capture-preview-empty{color:#a3a3a3}.capture-media .capture-preview-empty>span{color:#d4d4d4}
+.capture-media .capture-resolution{top:auto;left:auto;right:8px;bottom:8px;padding:3px 7px;border-radius:5px;background:rgb(0 0 0 / .55);color:#fff;font-size:11px;line-height:15px;backdrop-filter:blur(6px)}
+.capture-preview-empty.compact{gap:6px;padding:8px}.capture-preview-empty.compact>span{font-size:11px;color:#d4d4d4}
+/* Audio: a single thin oscilloscope line, no track or frame; flat in silence. */
+.recording-source-panel .capture-audio{padding:0}
+.recording-source-panel .capture-audio>[role=meter]{position:relative;height:28px}
+.recording-source-panel .capture-audio canvas{display:block;width:100%;height:100%}
+.recording-source-panel .capture-flatline{height:1.75px;margin-top:-.875px;border-radius:1px;background:#4a8cff;opacity:.45}
+.recording-source-panel .capture-source-hint{margin-top:4px;min-height:0;font-size:11px;line-height:15px;color:var(--muted)}
 .capture-row-note{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px;font-size:12px;line-height:1.5;color:var(--muted)}
 .capture-row-note .capture-inline-action{margin-top:0;font-size:12px}
-.capture-source-hint{font-size:12px}
 .capture-inline-action{font-size:12px}
-.capture-stage .capture-resolution{top:9px;right:9px;bottom:auto;border-radius:4px;font-size:10px}
-.recording-source-panel .capture-source>header>strong{margin-right:auto}
-.recording-source-panel .capture-audio>[role=meter]{height:18px}
-.recording-source-panel .capture-source-hint{margin-top:2px;min-height:0}
 .capture-audio-only{font-size:12px;line-height:1.5}
-
-/* Composed preview: boxes are positioned from the Creator preset, so the corner of the screen is exactly where the export puts it. */
-.capture-stage.composed{background:#121212;background-image:radial-gradient(rgb(255 255 255 / .10) 1px,transparent 1.2px);background-size:14px 14px}
-.capture-stage-screen,.capture-stage-camera{position:absolute;overflow:hidden;border-radius:5px;box-shadow:0 5px 12px rgb(0 0 0 / .45);background:#000}
-.capture-stage-screen>.capture-video,.capture-stage-camera>.capture-video{position:absolute;inset:0;height:auto;min-height:0;border-radius:0}
-.capture-stage-screen>.capture-video>video,.capture-stage-camera>.capture-video>video{object-fit:cover}
-.capture-stage-camera>.capture-video{background:#1a1a1a}
+@media(max-width:760px){.recording-source-panel .capture-source{padding-inline:12px}.recording-source-panel .capture-device,.recording-source-panel .capture-screen-choice{max-width:calc(100% - 45px)}}
 /* Next step after a confirmed take: the way out of the recorder is a button, not a tab to find. */
 .recording-next{display:flex;align-items:center;justify-content:space-between;gap:16px;margin:16px 0 4px;padding:14px 16px;border:1px solid var(--line);border-radius:10px;background:var(--secondary)}
 .recording-next>div{display:flex;flex-direction:column;gap:2px;min-width:0}

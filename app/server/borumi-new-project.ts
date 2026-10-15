@@ -30,7 +30,9 @@ export function planNewBorumiProject(p:Project):NewBorumiPlan{
   if(c.effectTiming&&(Math.min(c.sourceIn,c.effectTiming.sourceIn)!==c.sourceIn||Math.max(c.sourceOut,c.effectTiming.sourceOut)!==c.sourceOut))blockers.add('Clip effect timing outside the current source range cannot be exported to a new Borumi project.');
   if(c.track==='music'&&c.speed!==1)blockers.add('Music speed changes cannot be exported yet.');
   if(['audio','music'].includes(c.track)&&c.muted)blockers.add('Muted standalone audio clips cannot be represented without dropping their editable clip.');
-  const expected={...defaultEffects(),flipX:c.effects.flipX};if(!isDeepStrictEqual(c.effects,expected))blockers.add('Only horizontal video flip is supported for new-project clip effects.');
+  // Camera face centering maps to Borumi's Auto face tracking; any other face centering has no native equivalent.
+  const {faceCenter,...effects}=c.effects;if(!isDeepStrictEqual(effects,{...defaultEffects(),flipX:c.effects.flipX}))blockers.add('Only horizontal video flip and camera face centering are supported for new-project clip effects.');
+  if(faceCenter&&c.track!=='camera')blockers.add('Face centering can only be exported on camera clips.');
   if(c.effects.flipX&&!['screen','camera'].includes(c.track))blockers.add('Horizontal flip requires a video track.');
   const t=c.transform;if(![t.x,t.y,t.width,t.height,t.rotation,t.opacity,t.borderRadius].every(Number.isFinite)||t.width<=0||t.height<=0||t.rotation!==0||t.opacity!==1||t.borderRadius<0)blockers.add('Video transforms require a positive rectangle, zero rotation and full opacity.');
   if(t.shadow)blockers.add('Clip shadows cannot be exported to a new Borumi project yet.');
@@ -83,7 +85,7 @@ export async function exportNewBorumiProject(p:Project,options:{templateProject:
     const m=p.media.find(m=>m.id===c.mediaId)!,mediaId=mediaIds.get(c.mediaId)!,duration=clipDuration(c),start=c.start-scene.start;
     const addAV=(video:boolean)=>{const clipId=randomUUID();db!.prepare('INSERT INTO clips(id,take_id,media,start_offset,duration,media_track) VALUES(?,?,?,?,?,?)').run(clipId,takeId,mediaId,0,m.duration,json({kind:video?'Video':'Audio'}));const common={scene_id:sceneId,take_id:takeId,clip_id:clipId,clip_start:c.sourceIn,collapse_group_id:null,speed:c.speed===1?null:c.speed};
      const audioRole=c.audioRole??m.audioRole;
-     insertSegment(sceneId,start,duration,video?{...common,kind:'VideoClip',content_kind:{kind:role(c)},mirrored:c.effects.flipX,freeze_frame:null,face_tracking_mode:{kind:'Disabled'},crop:null,background:null,color_adjustments:null,transition:{kind:'Cut'}}:{...common,kind:'AudioClip',content_kind:{kind:audioRole==='system'?'SystemSound':audioRole==='microphone'?'Microphone':c.track==='screen'?'SystemSound':'Microphone'},volume_filter:20*Math.log10(c.gain),noise_cancelling_filter:null,noise_cancelling_mode:null,voice_enhancement_filter:{kind:'Disabled'}});
+     insertSegment(sceneId,start,duration,video?{...common,kind:'VideoClip',content_kind:{kind:role(c)},mirrored:c.effects.flipX,freeze_frame:null,face_tracking_mode:{kind:c.track==='camera'&&c.effects.faceCenter?'Auto':'Disabled'},crop:null,background:null,color_adjustments:null,transition:{kind:'Cut'}}:{...common,kind:'AudioClip',content_kind:{kind:audioRole==='system'?'SystemSound':audioRole==='microphone'?'Microphone':c.track==='screen'?'SystemSound':'Microphone'},volume_filter:20*Math.log10(c.gain),noise_cancelling_filter:null,noise_cancelling_mode:null,voice_enhancement_filter:{kind:'Disabled'}});
     };
     if(['screen','camera'].includes(c.track)){addAV(true);if(m.hasAudio&&!c.muted)addAV(false);}
     else if(c.track==='music')insertSegment(sceneId,start,duration,{kind:'Music',media_id:mediaId,media_start:c.sourceIn,volume_filter:20*Math.log10(c.gain)});

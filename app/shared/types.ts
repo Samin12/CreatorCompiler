@@ -59,10 +59,14 @@ export interface ProjectSummary { id:string;name:string;updatedAt:string;duratio
 export interface ExportOptions { format:'mp4'|'webm'|'wav'|'srt'|'txt'|'md'|'json'; width?:number;height?:number;fps?:number;quality?:'draft'|'balanced'|'high';hardware?:boolean;burnCaptions?:boolean; range?:{start:number;end:number}; }
 export interface Job { id:string; type:'export'|'proxy'|'transcribe'|'analysis'; status:'queued'|'running'|'complete'|'failed'|'cancelled'|'interrupted'; progress:number; message:string; outputPath?:string; startedAt:string; completedAt?:string; error?:string; }
 export interface AISettings { provider:'local'|'openai'|'openai-compatible'|'elevenlabs'|'openrouter';baseUrl:string;model:string;language:string;apiKey?:string;localCommand?:string; }
+/** `workspacePath` is the "SceneForge AI Workspace" folder inside the chosen `workspaceLocation`. */
+export interface MCPSettings { enabled:boolean;workspaceLocation:string;workspacePath:string; }
 export interface AISuggestion { id:string;type:'silence'|'filler'|'script'|'caption'|'cut';start?:number;end?:number;text:string;reason:string; }
 export interface Capabilities { ffmpeg:boolean;ffprobe:boolean;hardwareEncode:boolean;transcription:{local:boolean;command?:string;providers:string[]};version:string; }
 export const defaultTransform=():Transform=>({x:0,y:0,width:1,height:1,rotation:0,opacity:1,fit:'contain',borderRadius:0});
 export const defaultEffects=():Clip['effects']=>({brightness:0,contrast:1,saturation:1,blur:0,grayscale:false,flipX:false,fadeIn:0,fadeOut:0,denoise:false,normalize:false});
+/** New camera clips follow the speaker's face by default; screen and other tracks keep the neutral effects. */
+export const effectsForTrack=(track:TrackKind):Clip['effects']=>track==='camera'?{...defaultEffects(),faceCenter:true}:defaultEffects();
 export const clipDuration=(clip:Clip)=>Math.max(0,(clip.sourceOut-clip.sourceIn)/Math.max(.05,clip.speed));
 /** Legacy untagged sources retain their original track priority. */
 export function narrationPriority(clip:Clip,media?:Media){const role=clip.audioRole??media?.audioRole;return role==='microphone'?-1:role==='system'?4:({audio:0,camera:1,screen:2,overlay:3,music:4})[clip.track];}

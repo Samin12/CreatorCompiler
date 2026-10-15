@@ -79,7 +79,7 @@ test('preservation sees committed WAL data and leaves source database unmodified
  const result=await exportBorumiRoundtrip(p,f);const reopened=await importBorumi(result.path);assert.ok(reopened.name.startsWith('Committed in WAL'));
  }finally{db?.close();await rm(f.root,{recursive:true,force:true})}});
 
-import {createProject,defaultEffects,defaultTransform} from '../shared/types.js';
+import {createProject,defaultEffects,defaultTransform,effectsForTrack} from '../shared/types.js';
 import {exportNewBorumiProject,planNewBorumiProject} from './borumi-new-project.js';
 
 test('new SceneForge project uses only clean schema metadata, and its AV content reimports',async()=>{const f=await fixture();try{
@@ -90,6 +90,19 @@ test('new SceneForge project uses only clean schema metadata, and its AV content
  const db=new DatabaseSync(path.join(result.path,'project.bmproj'),{readOnly:true});try{assert.equal((db.prepare('SELECT count(*) n FROM _borumi_migrations').get() as any).n,39);assert.equal(db.prepare("SELECT name FROM sqlite_master WHERE name='unknown_future'").get(),undefined);assert.equal((db.prepare('SELECT count(*) n FROM project_commits').get() as any).n,0);}finally{db.close()}
  const bytes=await readFile(path.join(result.path,'project.bmproj'));assert.equal(bytes.includes(Buffer.from('Original script')),false);assert.equal(bytes.includes(Buffer.from('canonical history')),false);assert.equal((await readdir(path.join(result.path,'.sceneforge'))).includes('original-project.sqlite'),false);
  }finally{await rm(f.root,{recursive:true,force:true})}});
+
+test('new-project camera face centering exports as Borumi Auto face tracking and reimports enabled',async()=>{const f=await fixture();try{
+ const source=new DatabaseSync(f.file);source.exec('CREATE TABLE _borumi_migrations(id INTEGER PRIMARY KEY,sql TEXT NOT NULL)');for(let i=0;i<39;i++)source.prepare('INSERT INTO _borumi_migrations VALUES(?,?)').run(i,'-- synthetic schema version');source.close();
+ const template=await importBorumi(f.bundle,{roundtripDirectory:f.preservationRoot}),p=createProject('Camera follow');delete p.canvas.backgroundPattern;p.canvas.padding=0;p.canvas.radius=0;p.scenes[0].duration=3;p.media=[{id:'cam',name:'Camera',path:path.join(f.bundle,'medias','m.mov'),kind:'video',duration:30,width:1920,height:1080}];
+ p.clips=[{id:'camera',mediaId:'cam',name:'Camera',track:'camera',start:0,sourceIn:0,sourceOut:3,speed:1,gain:1,muted:true,transform:defaultTransform(),effects:effectsForTrack('camera')}];
+ assert.equal(p.clips[0].effects.faceCenter,true);assert.equal(planNewBorumiProject(p).supported,true,planNewBorumiProject(p).blockers.join('\n'));
+ const screen=structuredClone(p);screen.clips[0].track='screen';assert.ok(planNewBorumiProject(screen).blockers.some(x=>x.includes('camera clips')));
+ const result=await exportNewBorumiProject(p,{...f,templateProject:template}),db=new DatabaseSync(path.join(result.path,'project.bmproj'),{readOnly:true});
+ try{const kinds=(db.prepare('SELECT kind FROM scene_timeline_segments').all() as any[]).map(r=>JSON.parse(r.kind)).filter(k=>k.kind==='VideoClip');assert.deepEqual(kinds.map(k=>k.face_tracking_mode),[{kind:'Auto'}]);}finally{db.close()}
+ const reopened=await importBorumi(result.path);assert.equal(reopened.clips.find(c=>c.track==='camera')?.effects.faceCenter,true);
+ p.clips[0].effects.faceCenter=false;const off=await exportNewBorumiProject(p,{...f,templateProject:template}),db2=new DatabaseSync(path.join(off.path,'project.bmproj'),{readOnly:true});
+ try{const kinds=(db2.prepare('SELECT kind FROM scene_timeline_segments').all() as any[]).map(r=>JSON.parse(r.kind)).filter(k=>k.kind==='VideoClip');assert.deepEqual(kinds.map(k=>k.face_tracking_mode),[{kind:'Disabled'}]);}finally{db2.close()}
+}finally{await rm(f.root,{recursive:true,force:true})}});
 
 test('new-project export blocks unsupported fidelity and scene or media mistakes',()=>{
  const p=createProject();delete p.canvas.backgroundPattern;p.canvas.padding=0;p.canvas.radius=0;p.scenes[0].duration=10;p.captions=[{id:'c',start:0,end:1,text:'kept'}];const plan=planNewBorumiProject(p);assert.equal(plan.supported,false);assert.ok(plan.blockers.some(x=>x.includes('Captions')));assert.ok(plan.blockers.some(x=>x.includes('scene duration')));

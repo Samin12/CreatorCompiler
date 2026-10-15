@@ -20,8 +20,14 @@ export function faceCrop(face:FaceBounds|null,sourceWidth:number,sourceHeight:nu
  const cx=face?(flipX?1-face.x-face.width/2:face.x+face.width/2):.5;
  return {x:face?clamp(scaledWidth*cx-width/2,0,maxX):maxX/2,y:face?clamp(scaledHeight*(face.y+face.height/2)-height*.4,0,maxY):maxY/2,maxX,maxY};
 }
-/** Interpolate bounded crop coordinates, including gentle return to center when no face is detected. */
-export function trackedCrop(points:FaceTrackPoint[],time:number,sourceWidth:number,sourceHeight:number,width:number,height:number,flipX=false){
+/** Seconds of samples either side of a time that the camera-follow smoothing reads. Track requests pad by this much so
+ * every preview tile and export window sees the same neighbors and frames the same crop. */
+export const FACE_FOLLOW_SUPPORT=3;
+const FOLLOW_RADIUS=.75,ANCHOR_RADIUS=FACE_FOLLOW_SUPPORT,DEAD_ZONE=.05,PRESENCE=.5;
+const biweight=(d:number,r:number)=>{const u=d/r;return u>=1?0:(1-u*u)**2;};
+const smoothstep=(n:number)=>{const u=clamp(n,0,1);return u*u*(3-2*u);};
+function lowerBound(points:FaceTrackPoint[],time:number){let lo=0,hi=points.length;while(lo<hi){const mid=(lo+hi)>>1;if(points[mid].time<time)lo=mid+1;else hi=mid;}return lo;}
+function linearCrop(points:FaceTrackPoint[],time:number,sourceWidth:number,sourceHeight:number,width:number,height:number,flipX:boolean){
  let lo=0,hi=points.length-1;
  while(lo<hi){const mid=Math.ceil((lo+hi)/2);if(points[mid].time<=time)lo=mid;else hi=mid-1;}
  const a=points[lo],b=points[Math.min(lo+1,points.length-1)];
@@ -29,6 +35,26 @@ export function trackedCrop(points:FaceTrackPoint[],time:number,sourceWidth:numb
  if(!a||!b||b.time<=a.time||time<=a.time)return left;
  const right=faceCrop(b.face,sourceWidth,sourceHeight,width,height,flipX),mix=clamp((time-a.time)/(b.time-a.time),0,1);
  return {...left,x:left.x+(right.x-left.x)*mix,y:left.y+(right.y-left.y)*mix};
+}
+/** Smooth camera follow, stateless so it never depends on where playback or an export window began.
+ * A short symmetric kernel over detected faces removes detector jitter; a long one gives a steady anchor. Offsets from the
+ * anchor inside a dead zone (5% of the crop) are ignored, then blend continuously back to the short path, so small head
+ * movements only drift the frame imperceptibly over a few seconds while real moves are followed promptly and in full.
+ * Missed detections never pull the frame: it eases back to center only as faces become rare across the long window. */
+export function trackedCrop(points:FaceTrackPoint[],time:number,sourceWidth:number,sourceHeight:number,width:number,height:number,flipX=false){
+ const base=faceCrop(null,sourceWidth,sourceHeight,width,height,flipX);
+ if(points.length<2)return linearCrop(points,time,sourceWidth,sourceHeight,width,height,flipX);
+ let sx=0,sy=0,sw=0,lx=0,ly=0,lw=0,all=0;
+ for(let i=lowerBound(points,time-ANCHOR_RADIUS);i<points.length&&points[i].time<time+ANCHOR_RADIUS;i++){
+  const point=points[i],d=Math.abs(point.time-time),long=biweight(d,ANCHOR_RADIUS);all+=long;if(!point.face)continue;
+  const crop=faceCrop(point.face,sourceWidth,sourceHeight,width,height,flipX),short=biweight(d,FOLLOW_RADIUS);
+  sx+=crop.x*short;sy+=crop.y*short;sw+=short;lx+=crop.x*long;ly+=crop.y*long;lw+=long;
+ }
+ if(lw<=1e-9)return base;
+ const ax=lx/lw,ay=ly/lw,fx=sw>1e-9?sx/sw:ax,fy=sw>1e-9?sy/sw:ay,presence=smoothstep(lw/all/PRESENCE);
+ const follow=(short:number,anchor:number,zone:number)=>{const diff=short-anchor;return anchor+diff*smoothstep(Math.abs(diff)/zone-1);};
+ const x=follow(fx,ax,DEAD_ZONE*width),y=follow(fy,ay,DEAD_ZONE*height);
+ return {...base,x:clamp(base.x+(x-base.x)*presence,0,base.maxX),y:clamp(base.y+(y-base.y)*presence,0,base.maxY)};
 }
 /** Symmetric finite support makes each absolute-time tile independent of clip and export boundaries. */
 export function smoothFaceSamples(points:FaceTrackPoint[]):FaceTrackPoint[]{
