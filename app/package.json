@@ -41,6 +41,7 @@
     "concurrently": "^9.0.0",
     "electron": "^44.7.1",
     "esbuild": "^0.28.2",
+    "happy-dom": "^21.0.1",
     "tsx": "^4.0.0",
     "typescript": "latest",
     "vite": "latest"

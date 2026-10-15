@@ -56,6 +56,7 @@ export interface DesktopRecordingHudState {
  hideMain: boolean; status: 'starting'|'recording'|'paused'|'saving'|'idle'; elapsed: number;
  /** The HUD opens its own live camera by matching this label; device IDs are salted per origin. */
  cameraLabel?:string; microphoneLabel?:string; systemAudioLabel?:string; countdown?:number|null;
+ microphoneLevel?:number|null; appearance?:'light'|'dark';
 }
 export interface DesktopNativeRecordingResult {
  id: string; status: string; excludesSceneForge: boolean; startedAtMs: number;

@@ -62,14 +62,14 @@ export function planCuts(p:Project,silences:AISuggestion[]){
 const element=(id:string,text:string,start:number,duration:number,box:Partial<Element>):Element=>({id,type:'text',text,start,duration,x:.025,y:.06,width:.72,height:.12,fontSize:44,color:'#F4F1EC',background:'#1E1D1Bee',opacity:1,rotation:0,...box});
 export function planVisuals(p:Project,background:Media,scope?:SceneScope){
  const duration=projectDuration(p);if(!duration)throw Error('Add timeline media before visualizing.');const changes:AutomationChange[]=[],operations:PlanOperation[]=[];
- changes.push({id:'proof-layout',category:'layout',label:'Dark dot grid, proof panel and camera tile',reason:'Uses your existing screen recordings in the left panel and camera on the right. Source timing and audio remain unchanged. Existing overlay clips stay in place.',selected:true});operations.push({id:'proof-layout',kind:'layout',background,sceneScope:scope});
+ changes.push({id:'proof-layout',category:'layout',label:'Screen and camera layout',reason:'Uses your existing screen recordings in the left panel and camera on the right. Source timing and audio remain unchanged. Existing overlay clips stay in place.',selected:true});operations.push({id:'proof-layout',kind:'layout',background,sceneScope:scope});
  const scenes=p.scenes.filter(s=>s.duration>0).slice(0,100);if(!scenes.length)scenes.push({id:'timeline',name:p.name,script:'',notes:'',start:0,duration});
  const warnings=['Existing recordings are evidence sources, not independently fact-checked claims. External pages, figures and assets have not been researched or fabricated.'];
  if(p.canvas.backgroundPattern!=='moving-dots')warnings.push('The dot grid is static; this treatment does not reproduce the full reference animation workflow.');
  const position=(index:number)=>scope?.position??{index,total:scenes.length},labelY=p.captionStyle.enabled&&p.captionStyle.position==='top'?.88:.03;
  for(const [index,s] of scenes.entries()){const {index:number,total}=position(index),title=s.name.trim()||`Chapter ${number+1}`,id='chapter-'+s.id,end=Math.min(duration,s.start+s.duration),d=end-s.start;if(d<=0)continue;
   const titleDuration=Math.min(1.6,d);const elements=[element(id+'-title',title,s.start,titleDuration,{x:.01,y:.3,width:.7676,height:.25,fontSize:Math.max(14,p.canvas.height*.052),background:'#1E1D1Bf2'}),element(id+'-badge',`${number+1}/${total}\n${title}`,s.start,d,{x:.7966,y:.045,width:.1843,height:.1389,fontSize:Math.max(10,p.canvas.height*.024),background:'#1E1D1B'})];
-  changes.push({id,category:'chapter',start:s.start,end,label:`Chapter ${number+1}: ${title}`,reason:'Title comes from your scene name; adds a 1.6-second panel slate and persistent chapter badge without inserting pauses.',selected:true});operations.push({id,kind:'elements',elements});
+  changes.push({id,category:'chapter',start:s.start,end,label:`Chapter ${number+1}: ${title}`,reason:'Title comes from your scene name; adds a 1.6-second panel slate and persistent chapter badge without inserting pauses.',selected:false});operations.push({id,kind:'elements',elements});
   const screens=p.clips.filter(c=>c.track==='screen'&&(c.zIndex??0)>=0&&c.start<end&&c.start+clipDuration(c)>s.start).sort((a,b)=>a.start-b.start);
   if(!screens.length){warnings.push(`Needs proof at ${s.start.toFixed(2)}s: “${title}” has no screen recording. Add a real source asset or record a demonstration; no proof is invented.`);continue;}
   // A scene can begin before a split or short screen clip. Resolve the source at
@@ -77,7 +77,7 @@ export function planVisuals(p:Project,background:Media,scope?:SceneScope){
   const labelTime=s.start+titleDuration;
   const first=screens.find(c=>c.start+clipDuration(c)>labelTime)!,start=Math.max(labelTime,first?.start??end);
   if(!first)continue;const until=Math.min(end,first.start+clipDuration(first),start+3);if(until-start<.25)continue;
-  const proofId='proof-'+s.id;changes.push({id:proofId,category:'proof',start,end:until,label:`Source footage: ${first.name}`,reason:`Labels existing screen media at source ${(first.sourceIn+(start-first.start)*first.speed).toFixed(2)}s. It does not assert that every narrated claim is proven.`,selected:true});operations.push({id:proofId,kind:'elements',elements:[element(proofId,'Recorded screen · '+first.name,start,until-start,{x:.03,y:labelY,width:.72,height:.065,fontSize:Math.max(10,p.canvas.height*.025),background:'#121212dd'})]});
+  const proofId='proof-'+s.id;changes.push({id:proofId,category:'proof',start,end:until,label:`Source footage: ${first.name}`,reason:`Labels existing screen media at source ${(first.sourceIn+(start-first.start)*first.speed).toFixed(2)}s. It does not assert that every narrated claim is proven.`,selected:false});operations.push({id:proofId,kind:'elements',elements:[element(proofId,'Recorded screen · '+first.name,start,until-start,{x:.03,y:labelY,width:.72,height:.065,fontSize:Math.max(10,p.canvas.height*.025),background:'#121212dd'})]});
  }
  if(p.scenes.length>100)warnings.push('First 100 chapters treated; later scenes need a separate pass.');return {changes,operations,warnings};
 }

@@ -6,7 +6,7 @@ import * as storage from './storage.js';
 import * as ai from './ai.js';
 import {inspectFrames} from './media.js';
 import {projectDuration,type AISettings,type Project,type Caption,type Media} from '../shared/types.js';
-import type {AutomationJob,AutomationKind,AutomationSettings,AutomationMutation,QuickActionRequest} from '../shared/automation.js';
+import type {AutomationJob,AutomationKind,AutomationSettings,AutomationMutation,QuickActionRequest,CutReview} from '../shared/automation.js';
 import {narrationWindows,speechSignature,mapSourceCaptions,mergeAutomaticCaptions,transcriptWords,planCuts,planVisuals,applyOperations,dotGridBMP,type PlanOperation} from './automation-plans.js';
 import {semanticCutPlan} from './automation-semantic.js';
 import {sceneScope,scenePlanningProject} from './automation-scope.js';
@@ -106,6 +106,14 @@ export function createAutomationEngine(overrides:Partial<Dependencies>={}){
  async function undo(id:string):Promise<AutomationMutation>{const r=await load(id);if(!r.job.applied||r.job.undone||!r.before||!r.afterRevision)throw Error('This job has no applied edit to undo.');const current=await d.read(r.job.projectId);if(storage.revision(current)!==r.afterRevision)throw Object.assign(Error('The project changed after this edit. Use Version history rather than replacing newer work.'),{status:409});const saved=await d.save(r.before,{expectedRevision:r.afterRevision,checkpoint:true});const captionState=await json<CaptionState>(captionPath(saved.id),{signature:'',generated:[]});await write(captionPath(saved.id),{...captionState,signature:speechSignature(saved)});r.job.undone=true;r.job.message='Edit undone.';await touch(r);return {job:structuredClone(r.job),project:saved};}
  async function preview(id:string,phase:string,time:number,changeIds?:string[]){const r=await load(id);if(!r.before||!r.operations||!r.job.proposal)throw Error('Wait for a completed proposal.');if(phase!=='before'&&phase!=='after')throw Error('Preview phase must be before or after.');if(!Number.isFinite(time)||time<0)throw Error('Preview time must be nonnegative.');const ids=changeIds??r.job.proposal.changes.filter(c=>c.selected).map(c=>c.id);if(ids.length)selected(r,ids);const p=phase==='before'?r.before:applyOperations(r.before,r.operations,ids);return (await d.inspect(p,[Math.min(time,Math.max(0,projectDuration(p)-1/p.canvas.fps))],d.cache,{width:640}))[0];}
  async function shutdown(){closed=true;nudge();for(const timer of timers.values())clearTimeout(timer);timers.clear();for(const r of records.values())if(active(r.job))await cancel(r.job.id);await pumping;await Promise.allSettled([...persisting.values()]);}
- return {events,getSettings,updateSettings,observe,queueTranscription,quickAction,get,list,cancel,apply,undo,preview,shutdown};
+ async function review(id:string,changeIds:string[]):Promise<CutReview>{
+  const record=await load(id);if(!record.before||!record.operations||!record.job.proposal)throw Error('Wait for a completed proposal.');
+  if(!Array.isArray(changeIds)||!changeIds.length)throw Error('Choose at least one cut to review.');selected(record,changeIds);
+  const ids=new Set(changeIds),cuts=record.operations.filter((op):op is Extract<PlanOperation,{kind:'cut'}>=>op.kind==='cut'&&ids.has(op.id)).sort((a,b)=>a.start-b.start);
+  const ranges:Array<[number,number]>=[];for(const cut of cuts){const previous=ranges.at(-1);if(previous&&cut.start<=previous[1])previous[1]=Math.max(previous[1],cut.end);else ranges.push([cut.start,cut.end]);}
+  const mapped=(time:number)=>time-ranges.reduce((removed,[start,end])=>removed+Math.max(0,Math.min(time,end)-start),0);
+  return {before:structuredClone(record.before),after:applyOperations(record.before,record.operations,changeIds),joins:cuts.map(cut=>({id:cut.id,label:record.job.proposal!.changes.find(change=>change.id===cut.id)!.label,originalStart:cut.start,originalEnd:cut.end,editedTime:mapped(cut.start)}))};
+ }
+ return {events,getSettings,updateSettings,observe,queueTranscription,quickAction,get,list,cancel,apply,undo,preview,review,shutdown};
 }
 export const automation=createAutomationEngine();

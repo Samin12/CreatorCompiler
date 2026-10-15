@@ -1,11 +1,14 @@
 const path=require('node:path');
 const {pathToFileURL}=require('node:url');
 const {randomUUID}=require('node:crypto');
+const fs=require('node:fs');
 
 const COMMANDS=new Set(['pause','resume','stop','show-editor']);
 function cleanState(value,initial=false){
  if(!value||typeof value!=='object')throw new Error('Invalid recording preview state.');
  const out={};
+ if('microphoneLevel'in value){if(value.microphoneLevel!==null&&(!Number.isFinite(value.microphoneLevel)||value.microphoneLevel<0||value.microphoneLevel>1))throw Error('Invalid microphone level.');out.microphoneLevel=value.microphoneLevel;}
+ if('appearance'in value){if(!['light','dark'].includes(value.appearance))throw Error('Invalid appearance.');out.appearance=value.appearance;}
  for(const [key,max] of [['projectName',240],['script',100000],['cameraLabel',240],['microphoneLabel',240],['systemAudioLabel',240]])if(key in value){if(typeof value[key]!=='string'||value[key].length>max)throw new Error('Invalid '+key);out[key]=value[key];}
  if('countdown'in value){if(value.countdown!==null&&(!Number.isInteger(value.countdown)||value.countdown<1||value.countdown>3))throw new Error('Invalid recording countdown.');out.countdown=value.countdown;}
  if('status'in value){if(!['starting','recording','paused','saving','idle'].includes(value.status))throw new Error('Invalid recording status.');out.status=value.status;}
@@ -18,21 +21,28 @@ function cleanState(value,initial=false){
 
 // Electron does not emit 'hide' for BrowserWindow.hide() on macOS, so the HUD reports
 // each editor hide/show it makes through onMainVisibility instead of relying on that event.
-function createRecordingHud({BrowserWindow,ipcMain,screen,getMainWindow,verifyMain,onMainVisibility=()=>{}}){
- let hud=null,state=null,hiddenMain=false,ready=null,ending=false,sessionId=null,synced=false;
+function createRecordingHud({BrowserWindow,ipcMain,screen,getMainWindow,verifyMain,onMainVisibility=()=>{},preferencesPath}){
+ let hud=null,state=null,hiddenMain=false,ready=null,ending=false,sessionId=null,synced=false,area=null,bounds=null,layout={camera:false,script:false};
+ let preferences={};try{if(preferencesPath)preferences=JSON.parse(fs.readFileSync(preferencesPath,'utf8'));}catch{/* Missing or damaged preferences use the compact default. */}
+ if(preferences.layout&&typeof preferences.layout.camera==='boolean'&&typeof preferences.layout.script==='boolean')layout={...preferences.layout};
  const documentURL=pathToFileURL(path.join(__dirname,'recording-hud.html')).href;
  const alive=w=>Boolean(w&&!w.isDestroyed());
  function verifyHud(e){if(!alive(hud)||e.sender!==hud.webContents||e.senderFrame!==hud.webContents.mainFrame||e.senderFrame.url!==documentURL)throw new Error('Untrusted recording preview.');}
  function restore(){const main=getMainWindow();if(hiddenMain&&alive(main)){main.show();main.focus();hiddenMain=false;onMainVisibility();}hiddenMain=false;}
- function end({restoreMain=true,id}={}){if(id&&id!==sessionId)return;ending=true;if(restoreMain)restore();else hiddenMain=false;if(alive(hud))hud.destroy();hud=null;state=null;ready=null;sessionId=null;synced=false;ending=false;}
+ function remember(){if(!alive(hud))return;bounds=hud.getBounds?.()??bounds;preferences={bounds,layout};if(preferencesPath)try{fs.mkdirSync(path.dirname(preferencesPath),{recursive:true});const temp=preferencesPath+'.tmp';fs.writeFileSync(temp,JSON.stringify(preferences));fs.renameSync(temp,preferencesPath);}catch{/* Preference storage never interrupts a take. */}}
+ function end({restoreMain=true,id}={}){if(id&&id!==sessionId)return;ending=true;remember();if(restoreMain)restore();else hiddenMain=false;if(alive(hud))hud.destroy();hud=null;state=null;ready=null;sessionId=null;synced=false;ending=false;}
  // The loaded HUD gets the full state once, then only changed fields (it merges);
  // the script is not re-sent with every clock tick.
  function publish(patch){if(!state||!alive(hud))return;if(synced||!patch){hud.webContents.send('recording-hud-state',synced&&patch?patch:state);synced=true;}const main=getMainWindow();if(!hiddenMain&&state.hideMain&&['recording','paused'].includes(state.status)&&alive(main)){main.hide();hiddenMain=true;onMainVisibility();}if(['saving','idle'].includes(state.status))restore();}
  async function begin(value){
   const next=cleanState(value,true);if(alive(hud))end();sessionId=randomUUID();synced=false;const id=sessionId;
-  state=next;const main=getMainWindow(),display=screen.getDisplayMatching(alive(main)?main.getBounds():screen.getPrimaryDisplay().bounds),area=display.workArea;
-  const width=Math.min(340,area.width),height=Math.min(660,area.height-24);
-  hud=new BrowserWindow({width,height,minWidth:280,minHeight:240,maxWidth:620,x:Math.round(area.x+area.width-width-20),y:Math.round(area.y+Math.max(12,(area.height-height)/2)),title:'SceneForge recording preview',type:'panel',frame:false,transparent:true,backgroundColor:'#00000000',vibrancy:'under-window',visualEffectState:'active',show:false,resizable:true,alwaysOnTop:true,skipTaskbar:true,roundedCorners:true,webPreferences:{preload:path.join(__dirname,'recording-hud-preload.cjs'),contextIsolation:true,nodeIntegration:false,sandbox:true,backgroundThrottling:false}});
+  state={...next,layout:{camera:layout.camera&&next.cameraEnabled,script:layout.script&&Boolean(next.script.trim())}};const main=getMainWindow(),saved=preferences.bounds,valid=saved&&['x','y','width','height'].every(key=>Number.isFinite(saved[key]));
+  const display=screen.getDisplayMatching(valid?saved:alive(main)?main.getBounds():screen.getPrimaryDisplay().bounds);area=display.workArea;
+  const width=Math.min(valid?Math.max(340,Math.min(620,saved.width)):384,area.width),expanded=state.layout.camera||state.layout.script;
+  const requiredHeight=112+(state.layout.camera?Math.round(width*9/16)+12:0)+(state.layout.script?300:0);
+  const height=Math.min(expanded?Math.max(requiredHeight,valid?saved.height:112):112,area.height-12);
+  bounds={width,height,x:Math.round(Math.max(area.x,Math.min(area.x+area.width-width,valid?saved.x:area.x+area.width-width-20))),y:Math.round(Math.max(area.y,Math.min(area.y+area.height-height,valid?saved.y:area.y+24)))};
+  hud=new BrowserWindow({...bounds,minWidth:340,minHeight:112,maxWidth:620,title:'SceneForge recording preview',type:'panel',frame:false,transparent:true,backgroundColor:'#00000000',show:false,resizable:true,alwaysOnTop:true,skipTaskbar:true,roundedCorners:true,webPreferences:{preload:path.join(__dirname,'recording-hud-preload.cjs'),contextIsolation:true,nodeIntegration:false,sandbox:true,backgroundThrottling:false}});
   // Defense in depth only. macOS ScreenCaptureKit also explicitly excludes this
   // application's PID in native-recording.swift; this flag alone is insufficient.
   hud.setContentProtection(true);hud.setAlwaysOnTop(true,'floating');
@@ -41,6 +51,7 @@ function createRecordingHud({BrowserWindow,ipcMain,screen,getMainWindow,verifyMa
   hud.webContents.setWindowOpenHandler(()=>({action:'deny'}));hud.webContents.on('will-navigate',e=>e.preventDefault());
   hud.on('close',e=>{if(!ending&&state&&['starting','recording','paused'].includes(state.status)){e.preventDefault();if(alive(getMainWindow()))getMainWindow().webContents.send('recording-hud-command','stop');}});
   hud.on('closed',()=>{hud=null;if(!ending)restore();});
+  hud.on('moved',remember);hud.on('resized',remember);
   const current=hud;ready=current.loadFile(path.join(__dirname,'recording-hud.html')).then(()=>{if(hud===current&&alive(current)){current.showInactive();publish();}});
   try{await ready;return {id,visible:sessionId===id&&alive(hud)};}catch(e){end({id});throw e;}
  }
@@ -49,6 +60,12 @@ function createRecordingHud({BrowserWindow,ipcMain,screen,getMainWindow,verifyMa
   'update-recording-hud':(e,value,id)=>{verifyMain(e);const patch=cleanState(value);if(state&&(!id||id===sessionId)){state={...state,...patch};publish(patch);}return {visible:(!id||id===sessionId)&&alive(hud)};},
   'end-recording-hud':(e,id)=>{verifyMain(e);end({id});},
   'recording-hud-read':e=>{verifyHud(e);return state;},
+  'recording-hud-layout':(e,value)=>{
+   verifyHud(e);if(!value||typeof value.camera!=='boolean'||typeof value.script!=='boolean')throw Error('Choose valid preview panels.');
+   layout={camera:value.camera&&state.cameraEnabled,script:value.script&&Boolean(state.script?.trim())};
+   bounds=hud.getBounds?.()??bounds;const height=Math.min(112+(layout.camera?Math.round(bounds.width*9/16)+12:0)+(layout.script?300:0),Math.max(112,area.y+area.height-bounds.y-12));
+   hud.setBounds({...bounds,height});bounds={...bounds,height};state={...state,layout};remember();publish({layout});return layout;
+  },
   'recording-hud-command':(e,command)=>{verifyHud(e);if(!COMMANDS.has(command))throw new Error('Unknown recording action.');const main=getMainWindow();if(command==='show-editor'){if(state)state.hideMain=false;if(alive(main)){main.show();main.focus();hiddenMain=false;onMainVisibility();}return;}if(alive(main))main.webContents.send('recording-hud-command',command);}
  };
  for(const [name,handler]of Object.entries(handlers))ipcMain.handle(name,handler);

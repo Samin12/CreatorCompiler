@@ -14,6 +14,7 @@ function harness(){
   constructor(options:any){super();this.options=options;windows.push(this)}
   isDestroyed(){return this.dead}destroy(){this.dead=true;this.emit('closed')}show(){this.visible=true;this.shown++}showInactive(){this.show()}hide(){this.visible=false;this.hidden++}focus(){this.focused++}
   setBounds(bounds:any){this.options={...this.options,...bounds}}
+  getBounds(){const {x,y,width,height}=this.options;return{x,y,width,height};}
   workspaces:any[]=[];setContentProtection(v:boolean){this.protected=v}setIgnoreMouseEvents(v:boolean){this.ignored=v}setAlwaysOnTop(){}setVisibleOnAllWorkspaces(...args:any[]){this.workspaces=args}
   loadFile(file:string){this.webContents.mainFrame.url=new URL('file://'+file).href;return new Promise<void>((resolve,reject)=>{this.resolve=resolve;this.reject=reject})}
  }
@@ -24,6 +25,39 @@ function harness(){
  return {windows,handlers,main,opts,call,hudEvent};
 }
 async function opened(h:ReturnType<typeof harness>,value:any={status:'recording'}){const promise=h.call('begin-recording-hud',value),w=h.windows.at(-1);w.resolve();return {...await promise,w};}
+
+test('HUD opens compact and expanding preview panels preserves the control bar position without recording commands',async()=>{
+ const h=harness(),m=createRecordingHud(h.opts);try{
+  const {w}=await opened(h,{status:'recording',cameraEnabled:true,script:'Read this'});
+  assert.ok(w.options.height<=120,'compact controller does not open a large camera/script window');
+  const before={x:w.options.x,y:w.options.y};
+  h.handlers.get('recording-hud-layout')!(h.hudEvent(),{camera:true,script:true});
+  assert.ok(w.options.height>300);assert.deepEqual({x:w.options.x,y:w.options.y},before);assert.equal(h.main.webContents.messages.length,0);
+  h.handlers.get('recording-hud-layout')!(h.hudEvent(),{camera:false,script:false});assert.ok(w.options.height<=120);assert.equal(h.main.webContents.messages.length,0);
+ }finally{m.dispose();}
+});
+
+test('HUD remembers panels and bounds between sessions and clamps a disconnected display',async()=>{
+ const fs=require('node:fs'),os=require('node:os'),path=require('node:path'),dir=fs.mkdtempSync(path.join(os.tmpdir(),'hud-preferences-')),preferencesPath=path.join(dir,'hud.json');
+ let h=harness(),m=createRecordingHud({...h.opts,preferencesPath});
+ try{
+  const {w}=await opened(h,{status:'recording',cameraEnabled:true,script:'Script'});h.handlers.get('recording-hud-layout')!(h.hudEvent(),{camera:false,script:true});w.setBounds({x:-1200,y:100,width:420,height:410});h.call('end-recording-hud');m.dispose();
+  h=harness();m=createRecordingHud({...h.opts,preferencesPath});const next=await opened(h,{status:'recording',cameraEnabled:true,script:'Script'});
+  assert.equal(next.w.options.width,420);assert.equal(next.w.options.x,-1200);assert.ok(next.w.options.height>300);assert.deepEqual(h.handlers.get('recording-hud-read')!(h.hudEvent()).layout,{camera:false,script:true});
+  h.call('end-recording-hud');m.dispose();
+  fs.writeFileSync(preferencesPath,JSON.stringify({bounds:{x:9000,y:9000,width:420,height:410},layout:{camera:false,script:true}}));
+  h=harness();m=createRecordingHud({...h.opts,preferencesPath});const moved=await opened(h,{status:'recording',cameraEnabled:true,script:'Script'});
+  assert.ok(moved.w.options.x+moved.w.options.width<=0);assert.ok(moved.w.options.y+moved.w.options.height<=942);
+ }finally{m.dispose();fs.rmSync(dir,{recursive:true,force:true});}
+});
+
+test('restored script remains readable after an intervening take with no script',async()=>{
+ const h=harness(),m=createRecordingHud(h.opts);try{
+  await opened(h,{status:'recording',script:'First script'});h.handlers.get('recording-hud-layout')!(h.hudEvent(),{camera:false,script:true});h.call('end-recording-hud');
+  const plain=await opened(h,{status:'recording',script:''});assert.ok(plain.w.options.height<=120);h.call('end-recording-hud');
+  const scripted=await opened(h,{status:'recording',script:'Next script'});assert.ok(scripted.w.options.height>=400,'expanded script has room after a compact no-script take');
+ }finally{m.dispose();}
+});
 
 test('HUD accepts only trusted main and exact HUD main frame; blocks windows/navigation',async()=>{const h=harness(),m=createRecordingHud(h.opts);try{
  assert.throws(()=>h.handlers.get('update-recording-hud')!({sender:{},senderFrame:{}},{}),/Untrusted/);await assert.rejects(h.handlers.get('begin-recording-hud')!({sender:{},senderFrame:{}},{}),/Untrusted/);
@@ -38,6 +72,11 @@ test('HUD bounds text/JPEG payloads and rejects remote/script image sources',()=
  const data='data:image/jpeg;base64,/9j/';assert.equal(cleanState({cameraFrame:data}).cameraFrame,data);
  for(const cameraFrame of ['https://example.test/image','data:image/svg+xml;base64,AAAA','data:image/jpeg;base64,<script>',data+'A'.repeat(350000)])assert.throws(()=>cleanState({cameraFrame}));
  assert.throws(()=>cleanState({script:'x'.repeat(100001)}));assert.throws(()=>cleanState({projectName:'x'.repeat(241)}));assert.throws(()=>cleanState({elapsed:NaN}));assert.throws(()=>cleanState({countdown:0}));assert.deepEqual(cleanState({unknown:'ignored'}),{});
+});
+
+test('HUD accepts measured microphone levels and rejects invalid telemetry',()=>{
+ assert.equal(cleanState({microphoneLevel:.4}).microphoneLevel,.4);assert.equal(cleanState({microphoneLevel:null}).microphoneLevel,null);
+ for(const microphoneLevel of [-1,2,NaN,'loud'])assert.throws(()=>cleanState({microphoneLevel}));
 });
 
 test('HUD stale IDs and late load success cannot close or publish a replacement',async()=>{const h=harness(),m=createRecordingHud(h.opts);try{
