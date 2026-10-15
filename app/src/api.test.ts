@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createProject,defaultEffects,defaultTransform} from '../shared/types';
 import type {Clip} from '../shared/types';
-import {adoptSavedProject,apiResult,JSONBody,mapCaptionsToProject} from './api';
+import {adoptSavedProject,apiResult,insertMedia,JSONBody,mapCaptionsToProject} from './api';
 
 test('source captions are clipped and retimed through cuts, repeats and speeds without muted duplicates',()=>{
  const p=createProject('Caption mapping');
@@ -37,3 +37,4 @@ test('pre-serialized JSON bodies are sent unchanged',async()=>{
   await apiResult('/projects',{name:'x'});assert.equal(seen?.body,'{"name":"x"}');}
  finally{globalThis.fetch=original;}
 });
+test('media imported onto the camera track centers the face by default; other tracks keep neutral effects',()=>{const p=createProject(),video={id:'v',name:'Take',path:'/local/take.mp4',kind:'video' as const,duration:4,width:1280,height:720};insertMedia(p,[video],0,'camera');insertMedia(p,[{...video,id:'s'}],0,'screen');insertMedia(p,[{...video,id:'d'}]);assert.equal(p.clips[0].effects.faceCenter,true);assert.deepEqual(p.clips[1].effects,defaultEffects());assert.deepEqual(p.clips[2].effects,defaultEffects());});

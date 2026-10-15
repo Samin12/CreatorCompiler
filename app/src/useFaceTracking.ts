@@ -1,4 +1,6 @@
 import {useEffect,useState} from 'react';
+/** Fast tile responses never flash a status; only a detector that is still working after this delay is announced. */
+const SLOW_MS=1500;
 import type {Media} from '../shared/types';
 import {FACE_TILE_SECONDS,type FaceTrack} from '../shared/face-tracking';
 const cache=new Map<string,FaceTrack>();
@@ -17,6 +19,9 @@ export function useFaceTracking(media:Media,sourceTime:number,enabled:boolean){
    .catch(error=>{if(!controller.signal.aborted)setState({identity,error:error.message});});
   return()=>controller.abort();
  },[key,identity,media.id,media.kind,media.duration,tile,enabled]);
+ const [slow,setSlow]=useState(false);
+ useEffect(()=>{setSlow(false);if(!enabled||state.track&&state.identity===identity)return;const timer=setTimeout(()=>setSlow(true),SLOW_MS);return()=>clearTimeout(timer);},[enabled,identity,state.identity,Boolean(state.track)]);
  const track=enabled&&state.identity===identity&&state.track&&(media.kind==='image'||sourceTime>=state.track.start-1e-6&&sourceTime<=state.track.end+1e-6)?state.track:undefined;
- return {track,error:enabled&&state.identity===identity?state.error:undefined,loading:enabled&&!track&&!(state.identity===identity&&state.error)};
+ const loading=enabled&&!track&&!(state.identity===identity&&state.error);
+ return {track,error:enabled&&state.identity===identity?state.error:undefined,loading,slow:loading&&slow};
 }

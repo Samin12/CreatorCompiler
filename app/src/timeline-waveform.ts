@@ -2,13 +2,13 @@ import {clipDuration,type Clip,type Media} from '../shared/types';
 export function waveformMediaKey(media:Media){return JSON.stringify([media.id,media.path,media.size??null,media.duration,media.hasAudio??null]);}
 export function hasWaveform(media:Media){return media.kind==='audio'||media.kind==='video'&&media.hasAudio!==false;}
 /** A fixed square-root display curve makes quiet recordings visible without per-source normalization. */
-export function waveformHeight(peak:number){return 13*Math.sqrt(Math.max(0,Math.min(1,Number.isFinite(peak)?peak:0)));}
+export function waveformHeight(peak:number,max=13){return max*Math.sqrt(Math.max(0,Math.min(1,Number.isFinite(peak)?peak:0)));}
 export interface WaveformBar {x:number;peak:number;}
 /** Whole-source bins are sampled in source time, including trim and speed. Bins sit on a fixed timeline pixel grid, so a moving visible window only adds or drops edge bars; the pitch doubles past maxBars. */
-export function waveformBars(clip:Clip,media:Media,peaks:readonly number[],scale:number,visibleStart:number,visibleEnd:number,maxBars=1200):WaveformBar[]{
+export function waveformBars(clip:Clip,media:Media,peaks:readonly number[],scale:number,visibleStart:number,visibleEnd:number,maxBars=1200,basePitch=3):WaveformBar[]{
  if(!peaks.length||!(media.duration>0)||!(scale>0)||!Number.isFinite(scale))return [];
  const clipEnd=clip.start+clipDuration(clip),start=Math.max(clip.start,visibleStart),end=Math.min(clipEnd,visibleEnd);if(!(end>start))return [];
- let pitch=3;while(Math.ceil(end*scale/pitch)-Math.floor(start*scale/pitch)>Math.max(1,maxBars))pitch*=2;
+ let pitch=Math.max(1,basePitch);while(Math.ceil(end*scale/pitch)-Math.floor(start*scale/pitch)>Math.max(1,maxBars))pitch*=2;
  const first=Math.floor(start*scale/pitch),last=Math.ceil(end*scale/pitch),origin=clip.start*scale,bars:WaveformBar[]=[];
  for(let bin=first;bin<last;bin++){
   const from=Math.max(clip.start,bin*pitch/scale),to=Math.min(clipEnd,(bin+1)*pitch/scale);
@@ -19,9 +19,13 @@ export function waveformBars(clip:Clip,media:Media,peaks:readonly number[],scale
  }return bars;
 }
 const pathNumber=(value:number)=>Math.round(value*100)/100;
-/** One path per clip instead of a line element per bar; silent bars draw nothing either way. */
-export function waveformPath(bars:readonly WaveformBar[]):string{
- let d='';for(const bar of bars){const height=waveformHeight(bar.peak);if(height>0)d+=`M${pathNumber(bar.x)} ${pathNumber(14-height)}V${pathNumber(14+height)}`;}return d;
+/** One filled path per clip: the envelope mirrored about the centerline, top edge left to right and bottom edge back. Flat runs drop their interior points, so silence costs nothing; an all-silent window draws nothing and leaves the baseline. */
+export function waveformEnvelopePath(bars:readonly WaveformBar[],mid=11,amplitude=10):string{
+ const heights=bars.map(bar=>waveformHeight(bar.peak,amplitude));if(!heights.some(height=>height>0))return '';
+ const keep=bars.map((_,i)=>i===0||i===bars.length-1||heights[i]!==heights[i-1]||heights[i]!==heights[i+1]),top:string[]=[],bottom:string[]=[];
+ bars.forEach((bar,i)=>{if(!keep[i])return;const x=pathNumber(bar.x);top.push(`${x} ${pathNumber(mid-heights[i])}`);bottom.unshift(`${x} ${pathNumber(mid+heights[i])}`);});
+ const first=pathNumber(bars[0].x),last=pathNumber(bars[bars.length-1].x),center=pathNumber(mid);
+ return `M${first} ${center}L${[...top,`${last} ${center}`,...bottom].join(' ')}Z`;
 }
 type Entry={media:Media;listeners:Set<(peaks:readonly number[])=>void>;state:'queued'|'active'|'done';peaks:readonly number[]};
 /** Two background requests, bounded completed cache, queued requests withdrawn when no longer visible. */

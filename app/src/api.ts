@@ -1,7 +1,7 @@
 import {cutTimelineRange} from '../shared/timeline-edits';
 import {plainView} from './project-draft';
 import type { Caption, Media, Project, TrackKind } from '../shared/types';
-import { clipDuration, defaultEffects, defaultTransform, makeId } from '../shared/types';
+import { clipDuration, defaultTransform, effectsForTrack, makeId } from '../shared/types';
 import type {AgentChatJob,AgentChatRequest,AgentStatus} from '../shared/agent-chat';
 export const getAgentStatus=(refresh=false)=>api<AgentStatus>(`/agent/status${refresh?'?refresh=1':''}`);
 export const getProjectChat=(projectId:string)=>api<{jobs:AgentChatJob[]}>(`/projects/${encodeURIComponent(projectId)}/agent-chat`);
@@ -39,7 +39,8 @@ export function insertMedia(p:Project, medias:Media[], at?:number, track?:TrackK
  let position=at??Math.max(0,...p.clips.filter(c=>c.track==='screen').map(c=>c.start+clipDuration(c)));
  for(const media of medias){
   if(!p.media.some(m=>m.id===media.id))p.media.push(media);
-  p.clips.push({id:makeId(),mediaId:media.id,name:media.name,track:track??(media.kind==='audio'?'audio':media.kind==='image'?'overlay':'screen'),start:position,sourceIn:0,sourceOut:media.duration||5,speed:1,gain:1,muted:false,transform:defaultTransform(),effects:defaultEffects()});
+  const kind:TrackKind=track??(media.kind==='audio'?'audio':media.kind==='image'?'overlay':'screen');
+  p.clips.push({id:makeId(),mediaId:media.id,name:media.name,track:kind,start:position,sourceIn:0,sourceOut:media.duration||5,speed:1,gain:1,muted:false,transform:defaultTransform(),effects:effectsForTrack(kind)});
   position+=media.duration||5;
  }
  if(p.scenes.length===1&&p.scenes[0].duration===0)p.scenes[0].duration=position;

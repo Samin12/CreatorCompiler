@@ -4,7 +4,7 @@ import {promises as fs} from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {spawnSync} from 'node:child_process';
-import {faceCrop,isFaceBounds,trackedCrop,smoothFaceSamples,type FaceTrack} from '../shared/face-tracking.ts';
+import {FACE_FOLLOW_SUPPORT,faceCrop,isFaceBounds,trackedCrop,smoothFaceSamples,type FaceTrack} from '../shared/face-tracking.ts';
 import {faceCropCommands} from './face-crop.ts';
 import {getFaceTrack,validateFaceTrackSamples} from './face-tracking.ts';
 const ffmpeg=process.env.SCENEFORGE_FFMPEG||'ffmpeg';
@@ -13,11 +13,26 @@ const track:FaceTrack={version:1,sampleRate:4,start:0,end:2,subject:'largest-fac
 function run(args:string[]){const result=spawnSync(ffmpeg,['-v','error','-nostdin',...args],{timeout:30000,maxBuffer:16*1024*1024});assert.equal(result.status,0,result.stderr?.toString());return result.stdout;}
 test('tracking interpolation clamps crop, follows source time and handles loss without out-of-frame positions',()=>{
  const start=trackedCrop(track.points,0,320,180,90,180),middle=trackedCrop(track.points,.5,320,180,90,180),end=trackedCrop(track.points,1,320,180,90,180);
- assert.equal(middle.x,(start.x+end.x)/2);assert.ok(start.x<end.x);
+ assert.ok(Math.abs(middle.x-(start.x+end.x)/2)<1e-6);assert.ok(start.x<end.x);
  for(const x of [-.2,0,.5,.95,2]){const p=faceCrop(face(x),320,180,90,180);assert.ok(p.x>=0&&p.x<=p.maxX);assert.ok(p.y>=0&&p.y<=p.maxY);}
  const missing=trackedCrop([{time:0,face:null}],0,320,180,90,180);assert.equal(missing.x,115);
  const source=1.25,speed=.5,sourceIn=.5,elapsed=(source-sourceIn)/speed;
  assert.deepEqual(trackedCrop(track.points,sourceIn+elapsed*speed,320,180,90,180),trackedCrop(track.points,source,320,180,90,180));
+});
+test('camera follow suppresses detector jitter and holds through small head moves, but follows real moves',()=>{
+ const jitter=Array.from({length:41},(_,i)=>({time:i/4,face:face(.44+(i%2?.012:-.012))})),xs=Array.from({length:81},(_,i)=>trackedCrop(jitter,2+i/20,320,180,90,180).x);
+ const raw=Array.from({length:81},(_,i)=>faceCrop(jitter[Math.round((2+i/20)*4)].face,320,180,90,180).x);
+ assert.ok(Math.max(...xs)-Math.min(...xs)<.05*(Math.max(...raw)-Math.min(...raw)),'alternating jitter must be smoothed away');
+ const nudge=Array.from({length:41},(_,i)=>({time:i/4,face:face(i<20?.44:.448)})),held=Array.from({length:181},(_,i)=>trackedCrop(nudge,2+i/30,320,180,90,180).x);
+ assert.ok(Math.max(...held.slice(1).map((x,i)=>Math.abs(x-held[i])))<.05,'a small move inside the dead zone only drifts imperceptibly, never steps');
+ const move=Array.from({length:41},(_,i)=>({time:i/4,face:face(i<20?.2:.7)})),before=trackedCrop(move,2,320,180,90,180).x,after=trackedCrop(move,8,320,180,90,180).x,target=faceCrop(face(.7),320,180,90,180).x;
+ assert.ok(Math.abs(after-target)<1,'a real move is followed fully once it settles');assert.ok(Math.abs(before-faceCrop(face(.2),320,180,90,180).x)<1);
+ const path=Array.from({length:61},(_,i)=>trackedCrop(move,3.5+i/20,320,180,90,180).x);assert.ok(path.every((x,i)=>!i||x>=path[i-1]-1e-9),'the move is monotonic, with no overshoot');assert.ok(Math.max(...path.slice(1).map((x,i)=>x-path[i]))<20,'the move eases rather than jumps');
+ const brief=Array.from({length:41},(_,i)=>({time:i/4,face:i===20?null:face(.7)}));assert.ok(Math.abs(trackedCrop(brief,5,320,180,90,180).x-target)<1,'a single dropped detection barely moves the frame');
+ const gone=Array.from({length:41},(_,i)=>({time:i/4,face:i<8?face(.7):null}));assert.ok(Math.abs(trackedCrop(gone,9,320,180,90,180).x-115)<1,'a long absence eases back to center');
+ // Stateless and bounded: any window holding the support around a time gives the identical crop.
+ const all=Array.from({length:120},(_,i)=>({time:i/4,face:face(.3+Math.sin(i/3)*.2)})),t=15.1,window=all.filter(p=>Math.abs(p.time-t)<=FACE_FOLLOW_SUPPORT+.25);
+ assert.deepEqual(trackedCrop(window,t,320,180,90,180),trackedCrop(all,t,320,180,90,180));
 });
 test('finite-support smoothing gives identical interior samples across independently computed windows',()=>{
  const points=Array.from({length:60},(_,i)=>({time:i/4,face:face(.3+Math.sin(i)*.03)}));

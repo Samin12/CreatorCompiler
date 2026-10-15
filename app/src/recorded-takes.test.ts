@@ -38,3 +38,4 @@ test('saved and confirmed take preserves capture audio roles independent of file
  confirmTake(p,saved);assert.deepEqual(p.clips.map(c=>[c.audioRole,c.start]),[['microphone',.349],['system',0]]);assert.deepEqual(p.media.map(m=>m.audioRole),['microphone','system']);
  const legacy=take(p.scenes[1].id);assert.ok(takePreviewProject(p,legacy).clips.every(c=>c.audioRole===undefined));
 });
+test('legacy take preview and confirmation center the camera face by default',()=>{const p=createProject();confirmTake(p,take(p.scenes[0].id));assert.equal(p.clips.find(c=>c.track==='camera')!.effects.faceCenter,true);assert.equal(p.clips.find(c=>c.track==='screen')!.effects.faceCenter,undefined);const preview=takePreviewProject(p,take(p.scenes[0].id));assert.equal(preview.clips.find(c=>c.track==='camera')!.effects.faceCenter,true);assert.deepEqual(preview.clips.find(c=>c.track==='screen')!.effects,defaultEffects());});

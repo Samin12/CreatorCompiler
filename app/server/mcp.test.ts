@@ -89,3 +89,27 @@ test('export history and restart schemas enforce bounded, explicit requests with
  for(const args of [{job_id:'job'},{job_id:'job',acknowledge_runtime_change:'true'},{job_id:'../job',acknowledge_runtime_change:true},{job_id:'job',acknowledge_runtime_change:false,tx_id:'staged'}])await assert.rejects(handle('restart_export',args));assert.equal(calls.length,before);
  conflict=true;await assert.rejects(handle('restart_export',{job_id:'job',acknowledge_runtime_change:false}),/runtime changed/);assert.equal(calls.length,before+1);
 });
+
+import {gateToolHandler,MCP_DISABLED_MESSAGE} from './mcp.js';
+import {readMCPSettings,saveMCPSettings,AI_WORKSPACE_NAME} from './mcp-settings.js';
+import {mkdir,mkdtemp,rm as removeDir,stat as statPath,writeFile as writeText} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+test('external MCP calls honor the Enable MCP setting on every call, and older services stay enabled',async()=>{
+ let enabled=true,calls=0;const inner=async()=>{calls++;return {ok:true};};
+ const handle=gateToolHandler(inner,'http://127.0.0.1:45678/api',async url=>{assert.equal(String(url),'http://127.0.0.1:45678/api/mcp/settings');return Response.json({enabled});});
+ assert.deepEqual(await handle('get_guides'),{ok:true});enabled=false;await assert.rejects(handle('get_guides'),new RegExp(MCP_DISABLED_MESSAGE.slice(0,20)));assert.equal(calls,1);enabled=true;await handle('get_guides');assert.equal(calls,2);
+ const legacy=gateToolHandler(inner,'http://127.0.0.1:45678/api',async()=>Response.json({error:'missing'},{status:404}));await legacy('get_guides');assert.equal(calls,3);
+});
+test('MCP settings default on, persist, create the named workspace folder and reject unsafe locations',async()=>{
+ const dir=await mkdtemp(join(tmpdir(),'sceneforge-mcp-settings-'));try{
+  const initial=await readMCPSettings(dir);assert.equal(initial.enabled,true);assert.ok(initial.workspacePath.endsWith(AI_WORKSPACE_NAME));
+  const chosen=join(dir,'chosen');await mkdir(chosen);
+  const saved=await saveMCPSettings(dir,{enabled:false,workspaceLocation:chosen});assert.deepEqual(saved,{enabled:false,workspaceLocation:chosen,workspacePath:join(chosen,AI_WORKSPACE_NAME)});assert.deepEqual(await readMCPSettings(dir),saved);
+  await assert.rejects(statPath(saved.workspacePath),/ENOENT/,'a disabled MCP does not create the workspace folder');
+  assert.ok((await statPath((await saveMCPSettings(dir,{enabled:true})).workspacePath)).isDirectory());
+  for(const bad of [{enabled:'yes'},{workspaceLocation:'relative/folder'},{workspaceLocation:join(dir,'missing')},{other:true},[]])await assert.rejects(saveMCPSettings(dir,bad),/MCP|enabled|folder|Unexpected/);
+  const file=join(dir,'file.txt');await writeText(file,'x');await assert.rejects(saveMCPSettings(dir,{workspaceLocation:file}),/not an existing folder/);
+  assert.equal((await readMCPSettings(dir)).workspaceLocation,chosen);
+ }finally{await removeDir(dir,{recursive:true,force:true});}
+});

@@ -1,5 +1,5 @@
 import test from 'node:test';import assert from 'node:assert/strict';
-import {TimelineWaveformCache,hasWaveform,waveformBars,waveformHeight,waveformMediaKey,waveformPath} from './timeline-waveform';
+import {TimelineWaveformCache,hasWaveform,waveformBars,waveformHeight,waveformMediaKey,waveformEnvelopePath} from './timeline-waveform';
 import {defaultEffects,defaultTransform,type Clip,type Media} from '../shared/types';
 const media:Media={id:'source',path:'/fixture/source.wav',name:'Audio',kind:'audio',duration:10,width:0,height:0};
 const clip:Clip={id:'c',mediaId:'source',name:'Trimmed',track:'audio',start:20,sourceIn:4,sourceOut:8,speed:2,gain:1,muted:false,transform:defaultTransform(),effects:defaultEffects()};
@@ -13,8 +13,11 @@ test('bars sit on a fixed timeline pixel grid so a moving window keeps every sha
  for(const bar of b)if(byX.has(bar.x)){shared++;assert.equal(bar.peak,byX.get(bar.x));}assert.ok(shared>=40);
  assert.deepEqual(waveformBars(clip,media,Array.from({length:10},(_,i)=>i/10),3,20,22,1),[{x:3,peak:.7}]);
 });
-test('one path per clip draws each audible bar and skips silent ones',()=>{
- assert.equal(waveformPath([{x:1.5,peak:.25},{x:4.5,peak:0},{x:7.123,peak:1}]),'M1.5 7.5V20.5M7.12 1V27');assert.equal(waveformPath([]),'');
+test('one filled envelope per clip mirrors each bar about the centerline and collapses flat runs',()=>{
+ assert.equal(waveformEnvelopePath([{x:1.5,peak:.25},{x:4.5,peak:0},{x:7.123,peak:1}],14,13),'M1.5 14L1.5 7.5 4.5 14 7.12 1 7.12 14 7.12 27 4.5 14 1.5 20.5Z');
+ assert.equal(waveformEnvelopePath([]),'');assert.equal(waveformEnvelopePath([{x:1,peak:0},{x:3,peak:0}]),'');
+ const flat=waveformEnvelopePath([{x:1,peak:.25},{x:3,peak:.25},{x:5,peak:.25},{x:7,peak:.25}],10,8);assert.equal(flat,'M1 10L1 6 7 6 7 10 7 14 1 14Z');
+ const peaks=Array.from({length:10},(_,i)=>i/10);assert.equal(waveformBars(clip,media,peaks,3,20,22,4096,2).length,3);
 });
 test('muted and gain-adjusted clips retain raw source waveform without normalization',()=>{const peaks=Array(10).fill(.04);for(const change of [{muted:true},{gain:20},{gain:0}])assert.ok(waveformBars({...clip,...change},media,peaks,3,20,22).every(b=>b.peak===.04));assert.ok(hasWaveform({...media,kind:'video'}));assert.ok(!hasWaveform({...media,kind:'video',hasAudio:false}));assert.ok(!hasWaveform({...media,kind:'image'}));});
 test('cache deduplicates active sources, bounds concurrency and withdraws hidden queued requests',async()=>{

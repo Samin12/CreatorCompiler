@@ -4,7 +4,7 @@ import path from 'node:path';
 import {tmpdir} from 'node:os';
 import {createHash,randomUUID} from 'node:crypto';
 import {visionHelper} from './vision.ts';
-import {FACE_TILE_SECONDS,isFaceBounds,smoothFaceSamples,type FaceTrack,type FaceTrackPoint} from '../shared/face-tracking.ts';
+import {FACE_FOLLOW_SUPPORT,FACE_TILE_SECONDS,isFaceBounds,smoothFaceSamples,type FaceTrack,type FaceTrackPoint} from '../shared/face-tracking.ts';
 import type {Media} from '../shared/types.ts';
 const VERSION='source-face-4hz-v1',MAX_TILES=256;
 const memory=new Map<string,FaceTrackPoint[]>();
@@ -73,7 +73,8 @@ export async function getFaceTrack(media:Media,options:{start:number;end:number;
  options.signal?.throwIfAborted();const file=await fs.realpath(media.path),stat=await fs.stat(file,{bigint:true}),binary=await visionHelper(),helperStat=await fs.stat(binary);
  const identity=`${VERSION}:${file}:${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeNs}:${stat.ctimeNs}:${media.width}:${media.height}:${media.duration}:${helperStat.size}:${helperStat.mtimeMs}`;
  const start=media.kind==='image'?0:Math.min(options.start,Math.max(0,media.duration-.001)),end=media.kind==='image'?Math.max(1,options.end):Math.min(options.end,media.duration);
- const first=media.kind==='image'?0:Math.floor(Math.max(0,start-.5)/FACE_TILE_SECONDS),last=media.kind==='image'?0:Math.floor(Math.max(0,Math.min(media.duration-.001,end+.5))/FACE_TILE_SECONDS);
+ // Pad by the follow-smoothing support so preview tiles and export windows read identical neighbors at every time.
+ const first=media.kind==='image'?0:Math.floor(Math.max(0,start-FACE_FOLLOW_SUPPORT)/FACE_TILE_SECONDS),last=media.kind==='image'?0:Math.floor(Math.max(0,Math.min(media.duration-.001,end+FACE_FOLLOW_SUPPORT))/FACE_TILE_SECONDS);
  const points:FaceTrackPoint[]=[];
  for(let i=first;i<=last;i++)points.push(...await tile({...media,path:file},i,options.cacheDir??path.join(tmpdir(),'sceneforge-vision'),identity,binary,options.signal));
  points.sort((a,b)=>a.time-b.time);const unique=points.filter((p,i)=>!i||p.time>points[i-1].time);
