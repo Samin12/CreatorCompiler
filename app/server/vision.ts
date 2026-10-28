@@ -42,7 +42,7 @@ async function compileHelper() {
   if (process.platform !== "darwin")
     throw Error("Local person segmentation requires macOS Vision");
   return (helper ??= (async () => {
-    const bundled = fileURLToPath(new URL("./sceneforge-vision", import.meta.url));
+    const bundled = fileURLToPath(new URL("./creator-compiler-vision", import.meta.url));
     try {
       await fs.access(bundled, 1);
       return bundled;
@@ -52,7 +52,7 @@ async function compileHelper() {
       ),
       target = path.join(
         tmpdir(),
-        `sceneforge-vision-${hash(await fs.readFile(source, "utf8"))}`,
+        `creator-compiler-vision-${hash(await fs.readFile(source, "utf8"))}`,
       );
     try {
       await fs.access(target);

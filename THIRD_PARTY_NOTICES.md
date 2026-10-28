@@ -1,6 +1,6 @@
 # Third-party notices
 
-SceneForge's independently authored application code and identity assets are covered by the root [MIT license](LICENSE). Third-party software remains under its own license; that MIT grant does not relicense bundled dependencies, models or codec programs. No Borumi source code, proprietary media, logo, hosted service credentials or extracted assets are included in the public application.
+Creator Compiler's independently authored application code and identity assets are covered by the root [MIT license](LICENSE). Third-party software remains under its own license; that MIT grant does not relicense bundled dependencies, models or codec programs. No Borumi source code, proprietary media, logo, hosted service credentials or extracted assets are included in the public application.
 
 ## JavaScript application dependencies
 
@@ -19,7 +19,7 @@ Direct packages in `app/package-lock.json`:
 | Iconoir React | 7.11.0 | MIT |
 | Lucide React | 0.468.0 | ISC; included Feather-derived portions retain their stated MIT attribution |
 
-Iconoir's upstream icon design license credits **Luca Burgio**, and the installed React package notice credits **Daniel Martin**. Both notices are preserved: [upstream Iconoir](docs/licenses/iconoir/LICENSE) and the [installed package](docs/licenses/npm/iconoir-react@7.11.0/LICENSE). The app uses the open Iconoir package through an independent adapter, plus independently drawn interface glyphs and the SceneForge identity.
+Iconoir's upstream icon design license credits **Luca Burgio**, and the installed React package notice credits **Daniel Martin**. Both notices are preserved: [upstream Iconoir](docs/licenses/iconoir/LICENSE) and the [installed package](docs/licenses/npm/iconoir-react@7.11.0/LICENSE). The app uses the open Iconoir package through an independent adapter, plus independently drawn interface glyphs and the Creator Compiler identity.
 
 ## Electron and Chromium
 
@@ -27,7 +27,7 @@ The desktop shell uses Electron 44.7.1. Electron's MIT `LICENSE` and its `LICENS
 
 ## Media and speech command-line runtime
 
-The pinned build recipe is [app/scripts/build-runtime.mjs](app/scripts/build-runtime.mjs). It builds separate executable programs, invoked as subprocesses by SceneForge. No FFmpeg libraries are linked into SceneForge's own JavaScript or Swift implementation.
+The pinned build recipe is [app/scripts/build-runtime.mjs](app/scripts/build-runtime.mjs). It builds separate executable programs, invoked as subprocesses by Creator Compiler. No FFmpeg libraries are linked into Creator Compiler's own JavaScript or Swift implementation.
 
 | Component | Pinned version | License / notices |
 | --- | --- | --- |
@@ -39,7 +39,7 @@ The pinned build recipe is [app/scripts/build-runtime.mjs](app/scripts/build-run
 
 FFmpeg is configured with `--enable-gpl` and `--enable-libx264`, without `--enable-version3` or `--enable-nonfree`. Its executable is therefore GPL-2.0-or-later, rather than the LGPL-only configuration. [FFmpeg explains its optional GPL components here](https://ffmpeg.org/legal.html).
 
-The desktop release provides **[SceneForge-runtime-sources.zip](https://github.com/Samin12/SceneForge/releases/latest/download/SceneForge-runtime-sources.zip)** from the same release/download location. The generated archive includes the matching unmodified upstream source tarballs, pinned archive hashes, license texts, build recipe, exact commands and generated configuration. No upstream source patches are applied by the current recipe. Inspect the version-specific runtime `manifest.json` and release checksum list for the exact distributed build; a newer branch can differ from an older binary.
+The desktop release provides **[runtime sources archive](https://github.com/Samin12/CreatorCompiler/releases/latest/download/SceneForge-runtime-sources.zip)** from the same release/download location. The generated archive includes the matching unmodified upstream source tarballs, pinned archive hashes, license texts, build recipe, exact commands and generated configuration. No upstream source patches are applied by the current recipe. Inspect the version-specific runtime `manifest.json` and release checksum list for the exact distributed build; a newer branch can differ from an older binary.
 
 The build uses Apple system SDK/frameworks. Those system components are not redistributed as part of the source archive. The command-line runtime is supplied without warranty under its respective licenses. Codec patent rights, where applicable, are separate from software copyright licenses; no patent license beyond the included upstream grants is asserted.
 

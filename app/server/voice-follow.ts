@@ -58,7 +58,7 @@ export async function followSpeech(wav:Buffer,script:string,cursor:number,settin
  const {duration}=inspectVoiceWav(wav);if(script.length>500_000)throw new Error('The teleprompter script is too large.');if(inFlight)throw new Error('Voice following is busy. Wait for the current batch before sending another.');
  inFlight=true;let folder:string|undefined;
  try{
-  const defaultModel=process.env.SCENEFORGE_WHISPER_MODEL||path.join(os.homedir(),'Library','Application Support','SceneForge','studio','models','ggml-base.en.bin');
+  const defaultModel=process.env.SCENEFORGE_WHISPER_MODEL||path.join(os.homedir(),'Library','Application Support','Creator Compiler','studio','models','ggml-base.en.bin');
   const model=settings.provider==='local'&&settings.model?.trim()?settings.model:defaultModel;
   try{if(!(await stat(model)).isFile())throw new Error()}catch{throw new Error('Voice following needs an independent local Whisper model. Set the local model path or SCENEFORGE_WHISPER_MODEL.')}
   // inspectVoiceWav already proved mono 16 kHz PCM16, which whisper reads directly without an ffmpeg pass.

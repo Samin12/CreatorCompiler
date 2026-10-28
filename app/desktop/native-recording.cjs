@@ -29,7 +29,7 @@ function nativeOptions(input, directory, hostPid) {
  return options;
 }
 
-function createNativeRecordingManager({ipcMain,getMainWindow,origin,dataDir,helperPath=path.resolve(__dirname,'../server-dist/sceneforge-screen-recorder'),spawnProcess=spawn,hostPid=process.pid,platform=process.platform,onState,onPrepare,spareIdleMs=120000}) {
+function createNativeRecordingManager({ipcMain,getMainWindow,origin,dataDir,helperPath=path.resolve(__dirname,'../server-dist/creator-compiler-screen-recorder'),spawnProcess=spawn,hostPid=process.pid,platform=process.platform,onState,onPrepare,spareIdleMs=120000}) {
  let current, disposed = false, resetting, generation = 0, spare = null, previewWanted = true;
  const verify = event => { const window = getMainWindow(); if (!window || window.isDestroyed() || event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame) throw Error('Untrusted native recording request.'); let actual; try { actual = new URL(event.senderFrame.url).origin; } catch {} if (actual !== origin) throw Error('Untrusted native recording origin.'); };
  const publish = value => { const window = getMainWindow(); if (window && !window.isDestroyed()) window.webContents.send('native-recording-event', value); };

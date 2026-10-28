@@ -15,7 +15,7 @@ function waitForCapture<T>(promise:Promise<T>,signal:AbortSignal,releaseLate:(va
   const finish=(error?:Error,value?:T)=>{if(settled)return;settled=true;if(timer)clearTimeout(timer);signal.removeEventListener('abort',abort);if(error)reject(error);else resolve(value!);};
   const abort=()=>finish(new DOMException('Capture cancelled','AbortError'));
   signal.addEventListener('abort',abort,{once:true});if(signal.aborted)abort();
-  if(!settled&&timeoutMs!==undefined)timer=setTimeout(()=>finish(new Error('The selected screen did not open its preview. Try again, or quit and reopen SceneForge if it still cannot start.')),timeoutMs);
+  if(!settled&&timeoutMs!==undefined)timer=setTimeout(()=>finish(new Error('The selected screen did not open its preview. Try again, or quit and reopen Creator Compiler if it still cannot start.')),timeoutMs);
   promise.then(value=>{if(settled)releaseLate(value);else finish(undefined,value);},error=>finish(error));
  });
 }

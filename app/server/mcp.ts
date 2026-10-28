@@ -14,10 +14,10 @@ const recoveryId={type:'string',pattern:'^[a-zA-Z0-9_-]{1,100}$'};
 const reviewed={expected_revision:{type:'string',pattern:'^[0-9a-f]{64}$',description:'Exact revision returned by the reviewed committed state. Never refresh or substitute automatically.'}};
 const recoveryProject={project_id:recoveryId};
 export const toolDefinitions=[
- definition('get_guides','Read SceneForge model, units and transaction workflow.',{},[],true),
- definition('list_projects','List local SceneForge projects.',{},[],true),
+ definition('get_guides','Read Creator Compiler model, units and transaction workflow.',{},[],true),
+ definition('list_projects','List local Creator Compiler projects.',{},[],true),
  definition('create_project','Create an empty independent project.',{name:string}),
- definition('duplicate_project','Create an independent copy of a SceneForge project.',project,['project_id']),
+ definition('duplicate_project','Create an independent copy of a Creator Compiler project.',project,['project_id']),
  definition('get_project','Read a complete project and its content hash.',{...project,...tx},[],true),
  definition('get_project_overview','Read compact project duration, counts, scenes, media and canvas before editing a large timeline.',{...project,...tx},[],true),
  definition('get_scenes','Read scene scripts and time ranges.',{...project,...tx},[],true),
@@ -27,7 +27,7 @@ export const toolDefinitions=[
  definition('begin_project_edit','Begin an isolated in-memory edit based on the current committed revision.',project,['project_id']),
  definition('rename_project','Stage a project name change.',{...tx,name:string},['tx_id','name']),
  definition('update_scenes','Replace staged scenes with ordered scene objects: id, name, script, notes, start, duration. Times are seconds.',{...tx,scenes:array(object)},['tx_id','scenes']),
- definition('add_clips','Append complete SceneForge Clip objects to a transaction.',{...tx,clips:array(object)},['tx_id','clips']),
+ definition('add_clips','Append complete Creator Compiler Clip objects to a transaction.',{...tx,clips:array(object)},['tx_id','clips']),
  definition('update_clip','Patch one clip. Nested transform/effects objects are merged.',{...tx,clip_id:string,changes:object},['tx_id','clip_id','changes']),
  definition('split_clip','Split a clip at project time in seconds; preserves source timing and speed.',{...tx,clip_id:string,time:number},['tx_id','clip_id','time']),
  definition('delete_clips','Delete the identified clips without ripple.',{...tx,clip_ids:array(string)},['tx_id','clip_ids']),
@@ -105,9 +105,9 @@ export function trimProject(p:Project,input:number[][],ripple=true):Project{
 
 type Transaction={project:Project;revision:string;created:number};
 export function createToolHandler(baseUrl='http://127.0.0.1:4174/api',fetcher:typeof fetch=fetch){
- const url=new URL(baseUrl);if(!['127.0.0.1','localhost','[::1]'].includes(url.hostname)||url.protocol!=='http:')throw new Error('SceneForge MCP must connect to the loopback HTTP service.');
+ const url=new URL(baseUrl);if(!['127.0.0.1','localhost','[::1]'].includes(url.hostname)||url.protocol!=='http:')throw new Error('Creator Compiler MCP must connect to the loopback HTTP service.');
  const transactions=new Map<string,Transaction>();
- async function http(route:string,method='GET',body?:unknown,headers:Record<string,string>={}){const res=await fetcher(baseUrl.replace(/\/$/,'')+route,{method,headers:{'Content-Type':'application/json',...headers},body:body===undefined?undefined:JSON.stringify(body),signal:AbortSignal.timeout(30*60*1000)});const data:any=await res.json();if(!res.ok)throw Object.assign(new Error(data.error||`SceneForge HTTP ${res.status}`),{status:res.status});return {data,etag:res.headers.get('etag')?.replaceAll('"','')}}
+ async function http(route:string,method='GET',body?:unknown,headers:Record<string,string>={}){const res=await fetcher(baseUrl.replace(/\/$/,'')+route,{method,headers:{'Content-Type':'application/json',...headers},body:body===undefined?undefined:JSON.stringify(body),signal:AbortSignal.timeout(30*60*1000)});const data:any=await res.json();if(!res.ok)throw Object.assign(new Error(data.error||`Creator Compiler HTTP ${res.status}`),{status:res.status});return {data,etag:res.headers.get('etag')?.replaceAll('"','')}}
  function transaction(id:string){const t=transactions.get(id);if(!t)throw new Error('Unknown or closed edit transaction.');if(Date.now()-t.created>60*60*1000){transactions.delete(id);throw new Error('Transaction expired. Begin again from current project state.')}return t}
  async function read(a:any):Promise<Project>{if(a.tx_id&&a.project_id)throw new Error('Provide tx_id or project_id, not both.');if(a.tx_id)return transaction(a.tx_id).project;if(!a.project_id)throw new Error('project_id or tx_id is required.');return (await http(`/projects/${encodeURIComponent(a.project_id)}`)).data}
  const staged=(id:string)=>({tx_id:id,timeline_hash:hash(transaction(id).project)});
@@ -129,7 +129,7 @@ export function createToolHandler(baseUrl='http://127.0.0.1:4174/api',fetcher:ty
    if(name==='undo_media_relink')return (await http(`/projects/${encodeURIComponent(a.project_id)}/media-recovery/undo`,'POST',{planId:a.plan_id},headers)).data;
    return (await http(`/trash/${encodeURIComponent(a.trash_id)}/restore`,'POST',{asCopy:a.as_copy??false},headers)).data;
   }
-  if(name==='get_guides')return {application:'SceneForge',version:'0.1.0',units:'seconds',workflow:'Read get_project_overview, inspect_timeline for composed images, then get_timeline as needed. Use begin_project_edit, then use tx_id for reads and changes, verify get_project, commit with change_summary. Abort on failure. Concurrent changes cause conflict. Inspect and export read committed state; inspect again after committing to verify actual visuals.',clip:'id, mediaId, name, track(screen|camera|audio|music|overlay), start, sourceIn, sourceOut, speed, gain, muted, transform{x,y,width,height,rotation,opacity,fit,borderRadius}, effects{brightness,contrast,saturation,blur,grayscale,flipX,fadeIn,fadeOut,denoise,normalize}',limitations:'Independent SceneForge contract. Not wire-compatible with Borumi. Fullscreen/custom Borumi layouts and original AI engines may not reproduce identically. Trimming removes overlapping captions as whole blocks; review and regenerate affected captions.'};
+  if(name==='get_guides')return {application:'Creator Compiler',version:'0.1.0',units:'seconds',workflow:'Read get_project_overview, inspect_timeline for composed images, then get_timeline as needed. Use begin_project_edit, then use tx_id for reads and changes, verify get_project, commit with change_summary. Abort on failure. Concurrent changes cause conflict. Inspect and export read committed state; inspect again after committing to verify actual visuals.',clip:'id, mediaId, name, track(screen|camera|audio|music|overlay), start, sourceIn, sourceOut, speed, gain, muted, transform{x,y,width,height,rotation,opacity,fit,borderRadius}, effects{brightness,contrast,saturation,blur,grayscale,flipX,fadeIn,fadeOut,denoise,normalize}',limitations:'Independent Creator Compiler contract. Not wire-compatible with Borumi. Fullscreen/custom Borumi layouts and original AI engines may not reproduce identically. Trimming removes overlapping captions as whole blocks; review and regenerate affected captions.'};
   if(name==='list_projects')return (await http('/projects')).data;
   if(name==='create_project')return (await http('/projects','POST',{name:a.name})).data;
   if(name==='duplicate_project')return (await http(`/projects/${encodeURIComponent(a.project_id)}/duplicate`,'POST',{})).data;
@@ -142,7 +142,7 @@ export function createToolHandler(baseUrl='http://127.0.0.1:4174/api',fetcher:ty
    const frames=[],images=[];
    for(const frame of data.frames){
     if(typeof frame.url!=='string')throw new Error('Inspection frame URL is missing.');
-    const frameUrl=new URL(frame.url,url);if(frameUrl.origin!==url.origin)throw new Error('Inspection images must come from the SceneForge loopback service.');
+    const frameUrl=new URL(frame.url,url);if(frameUrl.origin!==url.origin)throw new Error('Inspection images must come from the Creator Compiler loopback service.');
     const response=await fetcher(frameUrl,{signal:AbortSignal.timeout(120000)});if(!response.ok)throw new Error(`Inspection image HTTP ${response.status}`);
     const mimeType=response.headers.get('content-type')?.split(';')[0];if(!['image/png','image/jpeg'].includes(mimeType??''))throw new Error('Inspection did not return a PNG or JPEG image.');
     const bytes=Buffer.from(await response.arrayBuffer());if(bytes.length>12*1024*1024)throw new Error('Inspection image exceeds 12 MB.');
@@ -173,15 +173,15 @@ export function createToolHandler(baseUrl='http://127.0.0.1:4174/api',fetcher:ty
    case 'set_zooms':p.zooms=structuredClone(a.zooms);break;
    case 'set_cursor':Object.assign(p.cursor,a.cursor);break;
    case 'import_media':{const {data}=await http('/media/import','POST',{paths:a.paths});p.media.push(...data);return {...staged(a.tx_id),media:data};}
-   default:throw new Error(`Unknown SceneForge tool: ${name}`);
+   default:throw new Error(`Unknown Creator Compiler tool: ${name}`);
   }return staged(a.tx_id);
  };
 }
-export const MCP_DISABLED_MESSAGE='SceneForge MCP is turned off. Turn on Enable MCP in SceneForge Settings > AI, then try again.';
+export const MCP_DISABLED_MESSAGE='Creator Compiler MCP is turned off. Turn on Enable MCP in Creator Compiler Settings > AI, then try again.';
 /** External assistants honor the Settings > AI switch on every call, so turning it off takes effect without a restart.
  * The in-app agent uses createToolHandler directly and is not affected. */
 export function gateToolHandler(handle:(name:string,a?:any)=>Promise<unknown>,baseUrl:string,fetcher:typeof fetch=fetch){
  return async(name:string,a:any={})=>{let enabled=true;try{const res=await fetcher(baseUrl.replace(/\/$/,'')+'/mcp/settings',{signal:AbortSignal.timeout(5000)});if(res.ok)enabled=(await res.json() as {enabled?:unknown}).enabled!==false;}catch{/* An older service without the setting stays enabled. */}if(!enabled)throw new Error(MCP_DISABLED_MESSAGE);return handle(name,a);};
 }
-export async function startMcp(fetcher:typeof fetch=fetch){const server=new Server({name:'sceneforge',version:'0.1.0'},{capabilities:{tools:{}}});const baseUrl=process.env.SCENEFORGE_URL||'http://127.0.0.1:4174/api',handle=gateToolHandler(createToolHandler(baseUrl,fetcher),baseUrl,fetcher);server.setRequestHandler(ListToolsRequestSchema,async()=>({tools:toolDefinitions}));server.setRequestHandler(CallToolRequestSchema,async r=>{try{const value=await handle(r.params.name,r.params.arguments);return r.params.name==='inspect_timeline'?value as any:{content:[{type:'text',text:JSON.stringify(value)}]}}catch(e){const message=e instanceof Error?e.message:String(e),status=(e as {status?:number})?.status;return {isError:true,content:[{type:'text',text:status?`SceneForge HTTP ${status}: ${message}`:message}]}}});await server.connect(new StdioServerTransport());return server;}
+export async function startMcp(fetcher:typeof fetch=fetch){const server=new Server({name:'creator-compiler',version:'0.1.0'},{capabilities:{tools:{}}});const baseUrl=process.env.SCENEFORGE_URL||'http://127.0.0.1:4174/api',handle=gateToolHandler(createToolHandler(baseUrl,fetcher),baseUrl,fetcher);server.setRequestHandler(ListToolsRequestSchema,async()=>({tools:toolDefinitions}));server.setRequestHandler(CallToolRequestSchema,async r=>{try{const value=await handle(r.params.name,r.params.arguments);return r.params.name==='inspect_timeline'?value as any:{content:[{type:'text',text:JSON.stringify(value)}]}}catch(e){const message=e instanceof Error?e.message:String(e),status=(e as {status?:number})?.status;return {isError:true,content:[{type:'text',text:status?`Creator Compiler HTTP ${status}: ${message}`:message}]}}});await server.connect(new StdioServerTransport());return server;}
 if(process.argv[1]&&['mcp.ts','mcp.mjs','mcp.js'].includes(basename(process.argv[1]))&&import.meta.url===pathToFileURL(process.argv[1]).href)startMcp().catch(e=>{console.error(e.message);process.exitCode=1});

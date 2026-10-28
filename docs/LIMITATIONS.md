@@ -1,6 +1,6 @@
 # Known limitations
 
-SceneForge is an independently authored early preview. Full Borumi feature, file-format, visual and performance parity is **not achieved**. Keep original source footage and review your output.
+Creator Compiler is an independently authored early preview. Full Borumi feature, file-format, visual and performance parity is **not achieved**. Keep original source footage and review your output.
 
 | Area | Current boundary |
 | --- | --- |
@@ -15,6 +15,6 @@ SceneForge is an independently authored early preview. Full Borumi feature, file
 | Export | MP4/WebM/WAV and document formats are available. A 20-minute corrected export passed full decode/audio and sampled visual regressions, not all-frame native parity. Saved-version restart renders from the beginning; no chunk resume. Changed/missing sources block restart and changed tools require acknowledgment. Snapshots do not contain source media. |
 | Desktop release | macOS 14+ Apple Silicon only. This prerelease is Apple Development signed, not notarized. An installed A→B→A cycle retained camera/mic/screen grants on one Mac; initial identity changes or OS revocation may still need consent. No automatic updater or hosted sharing/account system. |
 
-Performance work includes viewport-limited timeline rendering, active-source decoding, cached analysis, chunked export and bounded undo. These choices do not prove SceneForge is faster than Borumi across workloads.
+Performance work includes viewport-limited timeline rendering, active-source decoding, cached analysis, chunked export and bounded undo. These choices do not prove Creator Compiler is faster than Borumi across workloads.
 
 See [validation](VALIDATION.md) for precise completed checkpoints. Reports should use a minimal synthetic example when possible; project files, logs and screenshots may contain personal paths, transcript text and private footage.

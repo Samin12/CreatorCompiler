@@ -1,4 +1,4 @@
-/** SceneForge's independent, versioned editing model. All timeline times are seconds. */
+/** Creator Compiler's independent, versioned editing model. All timeline times are seconds. */
 export type TrackKind = 'screen'|'camera'|'audio'|'music'|'overlay';
 /** Capture provenance, never inferred from a filename or signal level. */
 export type AudioRole = 'microphone'|'system';
@@ -59,7 +59,7 @@ export interface ProjectSummary { id:string;name:string;updatedAt:string;duratio
 export interface ExportOptions { format:'mp4'|'webm'|'wav'|'srt'|'txt'|'md'|'json'; width?:number;height?:number;fps?:number;quality?:'draft'|'balanced'|'high';hardware?:boolean;burnCaptions?:boolean; range?:{start:number;end:number}; }
 export interface Job { id:string; type:'export'|'proxy'|'transcribe'|'analysis'; status:'queued'|'running'|'complete'|'failed'|'cancelled'|'interrupted'; progress:number; message:string; outputPath?:string; startedAt:string; completedAt?:string; error?:string; }
 export interface AISettings { provider:'local'|'openai'|'openai-compatible'|'elevenlabs'|'openrouter';baseUrl:string;model:string;language:string;apiKey?:string;localCommand?:string; }
-/** `workspacePath` is the "SceneForge AI Workspace" folder inside the chosen `workspaceLocation`. */
+/** `workspacePath` is the "Creator Compiler AI Workspace" folder inside the chosen `workspaceLocation`. */
 export interface MCPSettings { enabled:boolean;workspaceLocation:string;workspacePath:string; }
 export interface AISuggestion { id:string;type:'silence'|'filler'|'script'|'caption'|'cut';start?:number;end?:number;text:string;reason:string; }
 export interface Capabilities { ffmpeg:boolean;ffprobe:boolean;hardwareEncode:boolean;transcription:{local:boolean;command?:string;providers:string[]};version:string; }

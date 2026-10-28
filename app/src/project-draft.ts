@@ -20,6 +20,6 @@ export function applyProjectChange(base:Project,fn:(draft:Project)=>void,updated
  catch(caught){if('error' in failed&&!draftFailure(failed.error))throw failed.error;error=caught;}
  // Only a retry that succeeds proves the draft was at fault; an edit that fails again (its own TypeError) throws that error unreported.
  const next=structuredClone(base);fn(next);next.updatedAt=updatedAt;
- if(!draftStats.fallbacks++)console.warn('SceneForge: a structural project update failed; this edit used a full copy instead.',error);
+ if(!draftStats.fallbacks++)console.warn('Creator Compiler: a structural project update failed; this edit used a full copy instead.',error);
  return next;
 }

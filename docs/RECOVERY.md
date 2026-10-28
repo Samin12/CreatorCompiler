@@ -4,7 +4,7 @@ These controls are available in the current source build. The earlier 31-tool de
 
 ## Restore a deleted project
 
-Open **Trash** from the project library. Review the project name, deletion date and contents, then choose **Restore**. SceneForge restores its project file while retaining the existing source media and history.
+Open **Trash** from the project library. Review the project name, deletion date and contents, then choose **Restore**. Creator Compiler restores its project file while retaining the existing source media and history.
 
 If that project identity already exists, ordinary Restore stops. Choose **Restore as copy** to keep both projects. The recovered copy has a new identity and a “recovered copy” name. It shares references to the same source files; it does not duplicate footage or copy the original project's history into a new history folder.
 
@@ -14,7 +14,7 @@ Trash contains project files, not independent media backups. Moving or deleting 
 
 When files or playback references need attention, open **Locate media** from the project notice or media library. Select one source and choose its replacement file. Browser builds accept an absolute local path instead of opening the native chooser.
 
-SceneForge checks the media kind, dimensions, audio presence, known frame rate and the source interval needed by your edits. Preserved effect intervals can require more footage than the visible clip. An unknown original frame rate requires an explicit acknowledgement. Incompatible candidates cannot be applied.
+Creator Compiler checks the media kind, dimensions, audio presence, known frame rate and the source interval needed by your edits. Preserved effect intervals can require more footage than the visible clip. An unknown original frame rate requires an explicit acknowledgement. Incompatible candidates cannot be applied.
 
 Review the original and replacement details before **Apply replacement**. Matching properties cannot establish that two files contain the same take. Validation hashes the candidate and decodes small video/audio samples; it does not decode every frame or prove whole-file integrity. The project revision and candidate file are checked again when applying.
 
@@ -24,7 +24,7 @@ Applying changes this project's source references, preserving clip timing and ed
 
 ## Restore a saved version
 
-Open **Version history**, select the version, and restore it after review. If the project changes while history is open, use **Refresh** before restoring. SceneForge refuses a stale restore so it cannot silently overwrite a newer revision.
+Open **Version history**, select the version, and restore it after review. If the project changes while history is open, use **Refresh** before restoring. Creator Compiler refuses a stale restore so it cannot silently overwrite a newer revision.
 
 ## Agent access
 

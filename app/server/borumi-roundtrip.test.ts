@@ -82,7 +82,7 @@ test('preservation sees committed WAL data and leaves source database unmodified
 import {createProject,defaultEffects,defaultTransform,effectsForTrack} from '../shared/types.js';
 import {exportNewBorumiProject,planNewBorumiProject} from './borumi-new-project.js';
 
-test('new SceneForge project uses only clean schema metadata, and its AV content reimports',async()=>{const f=await fixture();try{
+test('new Creator Compiler project uses only clean schema metadata, and its AV content reimports',async()=>{const f=await fixture();try{
  const source=new DatabaseSync(f.file);source.exec('CREATE TABLE _borumi_migrations(id INTEGER PRIMARY KEY,sql TEXT NOT NULL)');for(let i=0;i<39;i++)source.prepare('INSERT INTO _borumi_migrations VALUES(?,?)').run(i,'-- synthetic schema version');source.close();
  const template=await importBorumi(f.bundle,{roundtripDirectory:f.preservationRoot}),p=createProject('New authored project');delete p.canvas.backgroundPattern;p.canvas.padding=0;p.canvas.radius=0;p.scenes[0].duration=3;p.scenes[0].script='Synthetic script only';p.media=[{id:'newmedia',name:'Synthetic',path:path.join(f.bundle,'medias','m.mov'),kind:'video',duration:30,width:1920,height:1080,hasAudio:true}];p.clips=[{id:'newclip',mediaId:'newmedia',name:'Synthetic',track:'screen',start:0,sourceIn:2,sourceOut:5,speed:1,gain:.5,muted:false,transform:defaultTransform(),effects:defaultEffects()}];
  const plan=planNewBorumiProject(p);assert.equal(plan.supported,true,plan.blockers.join('\n'));
@@ -227,7 +227,7 @@ test('new native projects preserve explicit clip audio roles before media fallba
  assert.deepEqual(again.clips.map(c=>c.audioRole),cases.map(c=>c.expected));assert.deepEqual(again.clips.map(c=>c.start),[0,1,2,3]);
 }finally{await rm(f.root,{recursive:true,force:true})}});
 
-test('new and preserved Borumi exports block SceneForge take history before dropping any archived recording',async()=>{
+test('new and preserved Borumi exports block Creator Compiler take history before dropping any archived recording',async()=>{
  const f=await fixture();try{
   const {saveProjectTake}=await import('../src/recorded-takes.js');const before=await planBorumiRoundtrip(f.project,f.preservationRoot);assert.equal(before.supported,true,before.blockers.join('\n'));
   saveProjectTake(f.project,{id:'saved-retake',sceneId:f.project.scenes[0].id,createdAt:'2026-10-13',media:[f.project.media[0]],tracks:['camera'],offsets:[0]});

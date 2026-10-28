@@ -75,7 +75,7 @@ export const shortcutDefinitions: readonly ShortcutDefinition[] = [
   def('deleteOrMergeBackward', 'Delete or merge backward', 'script', [key('Backspace')], {editable: 'script', availability: 'contextual', description: 'At the start of script text, delete an empty scene or merge with the previous scene.'}),
   def('recordingPresets', 'Show recording presets', 'record', [key('P', 'Mod', 'Shift')], {editable: 'any', availability: 'contextual'}),
   def('closeProject', 'Close project', 'app', [key('W', 'Mod')]),
-  def('quit', 'Quit SceneForge', 'app', [key('Q', 'Mod')], {availability: 'native'}),
+  def('quit', 'Quit Creator Compiler', 'app', [key('Q', 'Mod')], {availability: 'native'}),
   def('record', 'Record', 'recorder', [globalKey('KeyR')], {availability: 'global'}),
   def('tryAgain', 'Try again', 'recorder', [globalKey('KeyT')], {availability: 'global'}),
   def('stopRecord', 'Stop', 'recorder', [globalKey('KeyE')], {availability: 'global'}),
@@ -85,7 +85,7 @@ export const shortcutDefinitions: readonly ShortcutDefinition[] = [
   def('previousWord', 'Go to previous word', 'recorder', [globalKey('ArrowLeft')], {availability: 'global', repeat: true}),
   def('nextWord', 'Go to next word', 'recorder', [globalKey('ArrowRight')], {availability: 'global', repeat: true}),
   def('toggleWaveforms', 'Show or hide waveforms', 'edit', [key('E')], {extension:true,description:'Show source audio loudness inside timeline clips.'}),
-  def('saveProject', 'Save project', 'app', [key('S', 'Mod')], {extension: true, description: 'Save the current SceneForge project.'}),
+  def('saveProject', 'Save project', 'app', [key('S', 'Mod')], {extension: true, description: 'Save the current Creator Compiler project.'}),
 ];
 export type ShortcutOverrides = Partial<Record<ShortcutAction, ShortcutBinding[]>>;
 export interface ShortcutInput {

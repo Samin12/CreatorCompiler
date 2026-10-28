@@ -12,8 +12,8 @@ test('ready answers without probing, autosave can opt into a minimal echo whose 
  const dir=await fs.mkdtemp(path.join(os.tmpdir(),'sceneforge-project-api-')),port=await freePort(),base=`http://127.0.0.1:${port}/api`;
  const child=spawn(process.execPath,['--import','tsx','server/index.ts'],{cwd:path.resolve(import.meta.dirname,'..'),env:{...process.env,SCENEFORGE_PORT:String(port),SCENEFORGE_DATA_DIR:path.join(dir,'data')},stdio:'pipe'});let stderr='';child.stderr?.on('data',b=>stderr+=b);child.stdout?.resume();
  try{
-  let ready:any;for(let i=0;i<200&&!ready;i++){try{ready=await (await fetch(base+'/ready')).json();}catch{await delay(25);}}assert.deepEqual(ready,{application:'SceneForge',version:'0.1.0'},stderr);
-  const health=await (await fetch(base+'/health')).json();assert.equal(health.application,'SceneForge');assert.equal(typeof health.hardwareEncode,'boolean');assert.ok(health.dataDir);
+  let ready:any;for(let i=0;i<200&&!ready;i++){try{ready=await (await fetch(base+'/ready')).json();}catch{await delay(25);}}assert.deepEqual(ready,{application:'Creator Compiler',version:'0.1.0'},stderr);
+  const health=await (await fetch(base+'/health')).json();assert.equal(health.application,'Creator Compiler');assert.equal(typeof health.hardwareEncode,'boolean');assert.ok(health.dataDir);
   const created=await (await fetch(base+'/projects',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:'Minimal echo'})})).json();
   await t.test('project summaries distinguish planned duration from a populated timeline',async()=>{
    const draft=await (await fetch(base+'/projects',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:'Planned script'})})).json();

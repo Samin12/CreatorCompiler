@@ -27,7 +27,7 @@ SCENEFORGE_ALLOW_ADHOC=1 npm run package
 
 ## What the pipeline signs
 
-The application keeps the identifier `com.samin.sceneforge`. Its screen recorder, Vision helper, text renderer, FFmpeg, FFprobe and Whisper tools receive stable, distinct signing identifiers. The MCP launcher is a small compiled native executable at the existing `Contents/MacOS/sceneforge-mcp` path, signed as `com.samin.sceneforge.mcp`; it forwards arguments directly without a shell. These tools are signed before the containing application; Electron components are signed inside out with `@electron/osx-sign`. Every custom tool and the completed bundle are verified.
+The application keeps the identifier `com.samin.sceneforge`. Its screen recorder, Vision helper, text renderer, FFmpeg, FFprobe and Whisper tools receive stable, distinct signing identifiers. The MCP launcher is a small compiled native executable at the existing `Contents/MacOS/creator-compiler-mcp` path, signed as `com.samin.sceneforge.mcp`; it forwards arguments directly without a shell. These tools are signed before the containing application; Electron components are signed inside out with `@electron/osx-sign`. Every custom tool and the completed bundle are verified.
 
 This local signing policy deliberately uses empty entitlements, no App Sandbox, no hardened runtime and no timestamp. It introduces no extra privacy capabilities and does not reset, grant or edit macOS permissions. The signer creates the designated requirement; the pipeline does not install a permissive custom requirement.
 

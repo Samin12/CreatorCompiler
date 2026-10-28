@@ -13,9 +13,9 @@ const epsilon=1e-6;
 const owner=(p:Project,c:Clip)=>p.scenes.find(s=>c.start>=s.start-epsilon&&c.start+clipDuration(c)<=s.start+s.duration+epsilon);
 const role=(c:Clip)=>c.track==='camera'?'Camera':'Screen';
 export function planNewBorumiProject(p:Project):NewBorumiPlan{
- const blockers=new Set<string>(),warnings=['Requires a previously imported Borumi 0.32.0 schema template. Only schema and migration records are used; no source project content or history is copied.','A separate new Borumi project is created. Native opening still requires verification.','SceneForge editor preferences, notes and preview frame rate are not part of this Borumi interchange.'];
+ const blockers=new Set<string>(),warnings=['Requires a previously imported Borumi 0.32.0 schema template. Only schema and migration records are used; no source project content or history is copied.','A separate new Borumi project is created. Native opening still requires verification.','Creator Compiler editor preferences, notes and preview frame rate are not part of this Borumi interchange.'];
  if(p.timelineLayers?.length||p.clips.some(c=>c.layerId!==undefined))blockers.add('Custom timeline layers cannot be preserved by this Borumi export yet.');
- if(p.recordedTakes?.length)blockers.add('SceneForge recorded-take history cannot be preserved by this Borumi export. Keep the SceneForge project or export a video instead.');
+ if(p.recordedTakes?.length)blockers.add('Creator Compiler recorded-take history cannot be preserved by this Borumi export. Keep the Creator Compiler project or export a video instead.');
  if(p.canvas.backgroundPattern!==undefined)blockers.add('Moving-dot canvas backgrounds cannot be preserved by this Borumi export. Choose Solid color in Canvas, or export a video instead.');
  if(!/^#[0-9a-f]{6}$/i.test(p.canvas.background)||p.canvas.padding!==0||p.canvas.radius!==0||p.canvas.backgroundMediaId)blockers.add('New Borumi export currently requires a solid six-digit canvas color, zero canvas padding and zero canvas radius.');
  if(![p.canvas.width,p.canvas.height].every(n=>Number.isInteger(n)&&n>0&&n<=16384))blockers.add('Canvas dimensions must be integers between 1 and 16384.');
@@ -64,7 +64,7 @@ export async function exportNewBorumiProject(p:Project,options:{templateProject:
  let migrations:Array<{id:number;sql:string}>;try{migrations=input.prepare('SELECT id,sql FROM _borumi_migrations ORDER BY id').all() as typeof migrations;}finally{input.close()}
  if(migrations.length!==39||migrations.some((m,i)=>m.id!==i))throw Error('The schema template is not the observed Borumi 0.32.0 migration set.');
  const outputRoot=await safeBorumiOutputRoot(options.outputRoot,template.value.sourceRoot);
- const projectId=randomUUID(),slug=p.name.normalize('NFKC').replace(/[^a-zA-Z0-9 _-]/g,'').trim().slice(0,70)||'SceneForge project',output=path.resolve(outputRoot,`${slug}-${projectId.slice(0,8)}.bmprojbundle`),staging=`${output}.partial`;
+ const projectId=randomUUID(),slug=p.name.normalize('NFKC').replace(/[^a-zA-Z0-9 _-]/g,'').trim().slice(0,70)||'Creator Compiler project',output=path.resolve(outputRoot,`${slug}-${projectId.slice(0,8)}.bmprojbundle`),staging=`${output}.partial`;
  const sourceRoot=path.resolve(template.value.sourceRoot);if(output===sourceRoot||output.startsWith(sourceRoot+path.sep))throw Error('Export destination must be outside the template source bundle.');
  await mkdir(path.join(staging,'medias'),{recursive:true,mode:0o700});
  let db:DatabaseSync|undefined;try{
@@ -79,7 +79,7 @@ export async function exportNewBorumiProject(p:Project,options:{templateProject:
   let segmentOrder=0;const now=Date.now()/1000;
   const insertSegment=(sceneId:string,start:number,duration:number,kind:unknown)=>db!.prepare('INSERT INTO scene_timeline_segments(id,scene_id,start,duration,edited,kind,segment_order,created_at) VALUES(?,?,?,?,?,?,?,?)').run(randomUUID(),sceneId,start,duration,1,json(kind),segmentOrder++,now);
   for(const [index,scene] of p.scenes.entries()){
-   const sceneId=randomUUID(),takeId=randomUUID();db.prepare('INSERT INTO scenes VALUES(?,?,?,?,?)').run(sceneId,projectId,`O${String(index).padStart(8,'0')}`,scene.name,encodeBorumiScript(scene.script));db.prepare('INSERT INTO takes(id,scene_id,name,started_at) VALUES(?,?,?,?)').run(takeId,sceneId,'SceneForge import',now);
+   const sceneId=randomUUID(),takeId=randomUUID();db.prepare('INSERT INTO scenes VALUES(?,?,?,?,?)').run(sceneId,projectId,`O${String(index).padStart(8,'0')}`,scene.name,encodeBorumiScript(scene.script));db.prepare('INSERT INTO takes(id,scene_id,name,started_at) VALUES(?,?,?,?)').run(takeId,sceneId,'Creator Compiler import',now);
    const clips=p.clips.filter(c=>owner(p,c)?.id===scene.id),visual=clips.filter(c=>['screen','camera'].includes(c.track));
    for(const c of clips){
     const m=p.media.find(m=>m.id===c.mediaId)!,mediaId=mediaIds.get(c.mediaId)!,duration=clipDuration(c),start=c.start-scene.start;

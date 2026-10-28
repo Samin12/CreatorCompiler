@@ -26,15 +26,15 @@ test('native MCP launcher preserves spaces, literal arguments, environment and s
   await mkdir(bin,{recursive:true});
   const source=path.join(directory,'engine.c');
   await writeFile(source,'#include <stdio.h>\n#include <stdlib.h>\nint main(int argc,char **argv){printf("%s\\n",getenv("ELECTRON_RUN_AS_NODE"));for(int i=0;i<argc;i++)puts(argv[i]);return 0;}\n');
-  await run('/usr/bin/clang',['-target','arm64-apple-macos14.0',source,'-o',path.join(bin,'SceneForge')]);
+  await run('/usr/bin/clang',['-target','arm64-apple-macos14.0',source,'-o',path.join(bin,'Creator Compiler')]);
   const launcher=await buildMcpLauncher(app),alias=path.join(directory,'launcher alias');await symlink(launcher,alias);
   const actualBin=await realpath(bin);
   const args=['--name','a b','$(never-run)','--','unicode café'];
   for(const command of [launcher,alias]){
    const {stdout}=await run(command,args,{env:{...process.env,ELECTRON_RUN_AS_NODE:'0'}});
-   assert.deepEqual(stdout.trimEnd().split('\n'),['1',path.join(actualBin,'SceneForge'),actualBin+'/../Resources/app/server-dist/mcp-entry.mjs',...args]);
+   assert.deepEqual(stdout.trimEnd().split('\n'),['1',path.join(actualBin,'Creator Compiler'),actualBin+'/../Resources/app/server-dist/mcp-entry.mjs',...args]);
   }
-  await rm(path.join(bin,'SceneForge'));
+  await rm(path.join(bin,'Creator Compiler'));
   await assert.rejects(run(launcher,[]),error=>error.code===127&&/could not start the bundled service/.test(error.stderr));
  }finally{await rm(directory,{recursive:true,force:true});}
 });

@@ -32,11 +32,11 @@ for(const dir of ['desktop','dist','server-dist'])await cp(dir,path.join(staging
 for(const entry of ['bin','licenses','models','manifest.json','THIRD-PARTY-NOTICES.txt'])await cp(path.join('runtime',entry),path.join(staging,'runtime',entry),{recursive:true});
 for(const name of ['LICENSE','THIRD_PARTY_NOTICES.md'])await cp(path.resolve('..',name),path.join(staging,name));
 await cp('../docs',path.join(staging,'docs'),{recursive:true});
-await writeFile(path.join(staging,'package.json'),JSON.stringify({name:'sceneforge',productName:'SceneForge',version:'0.1.0',main:'desktop/main.cjs',description:'Local-first script, recording and video editing studio',author:'Samin Yasar'},null,2));
+await writeFile(path.join(staging,'package.json'),JSON.stringify({name:'creator-compiler',productName:'Creator Compiler',version:'0.1.0',main:'desktop/main.cjs',description:'Local-first script, recording and video editing studio',author:'Samin Yasar'},null,2));
 const version=JSON.parse(await readFile('node_modules/electron/package.json','utf8')).version;
-const result=await packager({dir:staging,name:'SceneForge',platform:'darwin',arch:'arm64',electronVersion:version,out:packageOutput,overwrite:true,asar:false,icon:path.resolve('assets/icon.icns'),appBundleId:'com.samin.sceneforge',appCategoryType:'public.app-category.video',extendInfo:{LSMinimumSystemVersion:'14.0',NSCameraUsageDescription:'Record camera video for your scenes.',NSMicrophoneUsageDescription:'Record narration for your scenes.',NSAudioCaptureUsageDescription:'Record system audio from the screen or window you choose.',NSScreenCaptureUsageDescription:'Record the screen or window you choose.'}});
+const result=await packager({dir:staging,name:'Creator Compiler',platform:'darwin',arch:'arm64',electronVersion:version,out:packageOutput,overwrite:true,asar:false,icon:path.resolve('assets/icon.icns'),appBundleId:'com.samin.sceneforge',appCategoryType:'public.app-category.video',extendInfo:{LSMinimumSystemVersion:'14.0',NSCameraUsageDescription:'Record camera video for your scenes.',NSMicrophoneUsageDescription:'Record narration for your scenes.',NSAudioCaptureUsageDescription:'Record system audio from the screen or window you choose.',NSScreenCaptureUsageDescription:'Record the screen or window you choose.'}});
 for(const dir of result){
- const resources=path.join(dir,'SceneForge.app/Contents/Resources');
+ const resources=path.join(dir,'Creator Compiler.app/Contents/Resources');
  // Electron Packager excludes these distribution files by default. Retain
  // their exact vendor bytes in the final bundle before signing it.
  for(const license of ['LICENSE','LICENSES.chromium.html']){
@@ -44,16 +44,16 @@ for(const dir of result){
   await cp(source,target);
   if(await sha256File(source)!==await sha256File(target))throw Error('Electron license copy failed: '+license);
  }
- await buildMcpLauncher(path.join(dir,'SceneForge.app'));
+ await buildMcpLauncher(path.join(dir,'Creator Compiler.app'));
 }
-for(const dir of result)await signPackage(path.join(dir,'SceneForge.app'),signingIdentity);
+for(const dir of result)await signPackage(path.join(dir,'Creator Compiler.app'),signingIdentity);
 for(const dir of result){
- const app=path.join(dir,'SceneForge.app'),zip=path.join(packageOutput,'SceneForge-macOS-arm64.zip');
+ const app=path.join(dir,'Creator Compiler.app'),zip=path.join(packageOutput,'Creator-Compiler-macOS-arm64.zip');
  await rm(zip,{force:true});
  await promisify(execFile)('ditto',['--norsrc','--noextattr','-c','-k','--keepParent',app,zip]);
  const sha=await sha256File(zip);
  await writeFile(zip+'.sha256',sha+'  '+path.basename(zip)+'\n');
  console.log(JSON.stringify({zip,sha256:sha,signing:signingIdentity.mode,notarized:false}));
- console.log(JSON.stringify(await createDmg(app,path.join(packageOutput,'SceneForge-macOS-arm64.dmg'))));
+ console.log(JSON.stringify(await createDmg(app,path.join(packageOutput,'Creator-Compiler-macOS-arm64.dmg'))));
 }
 console.log(result.join('\n'));
