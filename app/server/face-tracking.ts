@@ -76,7 +76,7 @@ export async function getFaceTrack(media:Media,options:{start:number;end:number;
  // Pad by the follow-smoothing support so preview tiles and export windows read identical neighbors at every time.
  const first=media.kind==='image'?0:Math.floor(Math.max(0,start-FACE_FOLLOW_SUPPORT)/FACE_TILE_SECONDS),last=media.kind==='image'?0:Math.floor(Math.max(0,Math.min(media.duration-.001,end+FACE_FOLLOW_SUPPORT))/FACE_TILE_SECONDS);
  const points:FaceTrackPoint[]=[];
- for(let i=first;i<=last;i++)points.push(...await tile({...media,path:file},i,options.cacheDir??path.join(tmpdir(),'sceneforge-vision'),identity,binary,options.signal));
+ for(let i=first;i<=last;i++)points.push(...await tile({...media,path:file},i,options.cacheDir??path.join(tmpdir(),'creator-compiler-vision'),identity,binary,options.signal));
  points.sort((a,b)=>a.time-b.time);const unique=points.filter((p,i)=>!i||p.time>points[i-1].time);
  return {version:1,sampleRate:4,start,end,points:unique,subject:'largest-face'};
 }

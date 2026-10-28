@@ -1,4 +1,4 @@
-# SceneForge v0.1.0-preview.3
+# SceneForge (now Creator Compiler) v0.1.0-preview.3
 
 The moving dotted canvas is now the default for new projects, with explicit layer controls and draggable scene groups. Requires Apple Silicon and macOS 14 or later.
 
@@ -10,6 +10,6 @@ The moving dotted canvas is now the default for new projects, with explicit laye
 - Drag the divider above the timeline to increase its height. Audio waveforms are visible in clips by default; E shows or hides them. The top bar has more spacing around window controls, tabs and actions.
 - The rounded Creator camera frame and shadow, magnetic edge snapping and automatic screen preview restoration from preview 2 remain included.
 
-[Download DMG](https://github.com/Samin12/SceneForge/releases/download/v0.1.0-preview.3/SceneForge-macOS-arm64.dmg) · [ZIP](https://github.com/Samin12/SceneForge/releases/download/v0.1.0-preview.3/SceneForge-macOS-arm64.zip) · [Runtime sources](https://github.com/Samin12/SceneForge/releases/download/v0.1.0-preview.3/SceneForge-runtime-sources.zip)
+[Download DMG](https://github.com/Samin12/CreatorCompiler/releases/download/v0.1.0-preview.3/SceneForge-macOS-arm64.dmg) · [ZIP](https://github.com/Samin12/CreatorCompiler/releases/download/v0.1.0-preview.3/SceneForge-macOS-arm64.zip) · [Runtime sources](https://github.com/Samin12/CreatorCompiler/releases/download/v0.1.0-preview.3/SceneForge-runtime-sources.zip)
 
 This is Apple Development signed and has not been notarized by Apple. There is no automatic updater. Complete Borumi parity/round-trip compatibility, automatic magnetic insertion, 4K capture and long-session hardware synchronization remain unfinished. Custom layers and animated backgrounds block Borumi copy export to avoid silently losing them. Read [installation](INSTALL.md), [validation](VALIDATION.md) and [limitations](LIMITATIONS.md).

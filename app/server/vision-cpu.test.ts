@@ -9,7 +9,7 @@ import { visionHelper } from './vision.ts';
 const execute=promisify(execFile);
 
 test('native CPU-only Vision detects, tracks actual frames and segments without an accelerator',{skip:process.platform!=='darwin',timeout:90000},async()=>{
-  const dir=await fs.mkdtemp(path.join(os.tmpdir(),'sceneforge-vision-cpu-'));
+  const dir=await fs.mkdtemp(path.join(os.tmpdir(),'creator-compiler-vision-cpu-'));
   try{
     const file=path.join(dir,'blank.mp4');
     await execute(process.env.SCENEFORGE_FFMPEG||'ffmpeg',['-v','error','-nostdin','-y','-f','lavfi','-i','color=blue:size=160x90:rate=2:duration=2','-c:v','libx264','-threads','1','-pix_fmt','yuv420p',file]);

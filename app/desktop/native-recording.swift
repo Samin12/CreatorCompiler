@@ -149,7 +149,7 @@ final class NativeRecording: NSObject, SCStreamOutput, SCStreamDelegate, @unchec
         var rect: CGRect
         if let windowID = config["windowId"] as? UInt32 {
             guard let window = content.windows.first(where: { $0.windowID == windowID }) else { throw failure("The chosen window is no longer available.") }
-            if let owner = window.owningApplication, excluded.contains(owner.processID) || owner.bundleIdentifier == "com.samin.sceneforge" { throw failure("SceneForge windows are excluded from native recording. Choose another window or a display.") }
+            if let owner = window.owningApplication, excluded.contains(owner.processID) || owner.bundleIdentifier == "com.samin.sceneforge" { throw failure("Creator Compiler windows are excluded from native recording. Choose another window or a display.") }
             capturedWindowID = windowID; capturedWindowPID = window.owningApplication?.processID
             captureBounds = selectedWindowBounds(windowID, ownerPID: capturedWindowPID) ?? window.frame
             filter = SCContentFilter(desktopIndependentWindow: window)
@@ -158,7 +158,7 @@ final class NativeRecording: NSObject, SCStreamOutput, SCStreamDelegate, @unchec
             let displayID = (config["displayId"] as? UInt32) ?? CGMainDisplayID()
             guard let display = content.displays.first(where: { $0.displayID == displayID }) else { throw failure("The chosen display is no longer connected.") }
             let requestedHosts = config["excludePids"] as? [Int] ?? []
-            guard requestedHosts.allSatisfy({ pid in applications.contains(where: { $0.processID == pid_t(pid) }) }) else { throw failure("SceneForge could not be identified for screen exclusion. Keep its main window visible while starting capture, then retry.") }
+            guard requestedHosts.allSatisfy({ pid in applications.contains(where: { $0.processID == pid_t(pid) }) }) else { throw failure("Creator Compiler could not be identified for screen exclusion. Keep its main window visible while starting capture, then retry.") }
             filter = SCContentFilter(display: display, excludingApplications: applications, exceptingWindows: [])
             captureBounds = display.frame
             rect = CGRect(x: 0, y: 0, width: display.frame.width, height: display.frame.height)

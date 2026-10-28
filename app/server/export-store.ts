@@ -42,7 +42,7 @@ export async function fingerprintRendererFile(file:string,deadline=Date.now()+50
  const failure=(error:unknown)=>new Error(`Could not verify renderer ${file}: ${error instanceof Error?error.message:String(error)}`,{cause:error});
  let firstDigest:string|undefined;
  for(let attempt=0;attempt<3;attempt++){
-  const remaining=deadline-Date.now();if(remaining<=0)throw failure(Error('Renderer verification timed out. Try opening SceneForge again.'));
+  const remaining=deadline-Date.now();if(remaining<=0)throw failure(Error('Renderer verification timed out. Try opening Creator Compiler again.'));
   try{
    const identity=await fingerprintFile(file,AbortSignal.timeout(remaining));
    if(firstDigest!==undefined&&identity.sha256!==firstDigest)throw Error('Renderer content changed while its fingerprint was being read');
@@ -51,11 +51,11 @@ export async function fingerprintRendererFile(file:string,deadline=Date.now()+50
    if(!(error instanceof FingerprintChanged)||!error.metadataOnly||attempt===2)throw failure(error);
    if(firstDigest!==undefined&&error.readSha256!==firstDigest)throw failure(Error('Renderer content changed while its fingerprint was being read'));
    firstDigest=error.readSha256;
-   const delay=25*(attempt+1);if(Date.now()+delay>=deadline)throw failure(Error('Renderer verification timed out. Try opening SceneForge again.'));
+   const delay=25*(attempt+1);if(Date.now()+delay>=deadline)throw failure(Error('Renderer verification timed out. Try opening Creator Compiler again.'));
    await new Promise(resolve=>setTimeout(resolve,delay));
   }
  }
- throw failure(Error('Renderer verification did not settle. Try opening SceneForge again.'));
+ throw failure(Error('Renderer verification did not settle. Try opening Creator Compiler again.'));
 }
 async function atomic(file:string,value:unknown){
  const tmp=file+'.'+randomUUID()+'.tmp';let handle:FileHandle|undefined;
@@ -71,7 +71,7 @@ async function resolveBinary(name:string){
 export async function rendererFingerprint():Promise<string>{
  const deadline=Date.now()+5000;
  const dir=path.dirname(fileURLToPath(import.meta.url));const files:string[]=[];
- for(const file of await fs.readdir(dir))if(/\.(?:ts|swift)$/.test(file)&&!file.endsWith('.test.ts')||file==='index.mjs'||file==='sceneforge-vision'||file==='sceneforge-text-renderer')files.push(path.join(dir,file));
+ for(const file of await fs.readdir(dir))if(/\.(?:ts|swift)$/.test(file)&&!file.endsWith('.test.ts')||file==='index.mjs'||file==='creator-compiler-vision'||file==='creator-compiler-text-renderer')files.push(path.join(dir,file));
  const shared=path.resolve(dir,'../shared');try{for(const file of await fs.readdir(shared))if(file.endsWith('.ts'))files.push(path.join(shared,file));}catch{}
  const signatures:unknown[]=[];
  for(const file of files.sort())signatures.push([path.basename(file),(await fingerprintRendererFile(file,deadline)).sha256]);

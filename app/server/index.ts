@@ -47,9 +47,9 @@ app.use(express.json({limit:'30mb'}));
 const route=(fn:(req:Request,res:Response)=>Promise<unknown>|unknown)=>(req:Request,res:Response,next:NextFunction)=>Promise.resolve(fn(req,res)).catch(next);
 const param=(req:Request,name='id')=>String(req.params[name]);
 const reviewedRevision=(req:Request)=>{const value=req.headers['if-match'];if(typeof value!=='string'||!/^(?:"[0-9a-f]{64}"|[0-9a-f]{64})$/.test(value))throw Object.assign(Error('A reviewed project revision is required. Refresh and review this action again.'),{status:409});return value.replaceAll('"','');};
-const capabilities=async()=>({...await media.getCapabilities(),transcription:await ai.transcriptionCapabilities(),vision:await getVisionCapabilities(),application:'SceneForge',mcp:{command:process.env.SCENEFORGE_MCP_COMMAND||path.join(os.homedir(),'Applications/SceneForge.app/Contents/MacOS/sceneforge-mcp'),args:[],toolCount:toolDefinitions.length},version:'0.1.0'});
+const capabilities=async()=>({...await media.getCapabilities(),transcription:await ai.transcriptionCapabilities(),vision:await getVisionCapabilities(),application:'Creator Compiler',mcp:{command:process.env.SCENEFORGE_MCP_COMMAND||path.join(os.homedir(),'Applications/Creator Compiler.app/Contents/MacOS/creator-compiler-mcp'),args:[],toolCount:toolDefinitions.length},version:'0.1.0'});
 app.get('/api/health',route(async(_,res)=>res.json({...await capabilities(),dataDir:storage.DATA_DIR})));
-app.get('/api/ready',(_req,res)=>{res.json({application:'SceneForge',version:'0.1.0'});});
+app.get('/api/ready',(_req,res)=>{res.json({application:'Creator Compiler',version:'0.1.0'});});
 app.get('/api/capabilities',route(async(_,res)=>res.json(await capabilities())));
 app.get('/api/events',(_req,res)=>{
  res.setHeader('Content-Type','text/event-stream');res.setHeader('Cache-Control','no-cache, no-transform');res.setHeader('Connection','keep-alive');res.flushHeaders();
@@ -79,7 +79,7 @@ app.get('/api/inspection-images/:id',route((req,res)=>{const file=inspectedImage
 const prefersMinimal=(req:Request)=>/(?:^|,)\s*return\s*=\s*"?minimal"?\s*(?:[;,]|$)/i.test(String(req.headers.prefer??''));
 app.put('/api/projects/:id',route(async(req,res)=>{
  if(req.body.id!==param(req))throw new Error('Project ID mismatch');
- const saved=await storage.commitProject(req.body,{expectedRevision:req.headers['if-match']?.replaceAll('"',''),checkpoint:req.headers['x-sceneforge-checkpoint']==='1',clone:false});res.setHeader('ETag','"'+saved.revision+'"');
+ const saved=await storage.commitProject(req.body,{expectedRevision:req.headers['if-match']?.replaceAll('"',''),checkpoint:req.headers['x-creator-compiler-checkpoint']==='1',clone:false});res.setHeader('ETag','"'+saved.revision+'"');
  // The stored object is the request body itself with only updatedAt assigned, so the client can adopt that one field exactly.
  if(prefersMinimal(req)&&saved.project===req.body){res.setHeader('Preference-Applied','return=minimal');return res.json({minimal:true,id:saved.project.id,updatedAt:saved.project.updatedAt});}
  return res.type('json').send(saved.json);
@@ -201,7 +201,7 @@ app.get('/api/agent-chat/:id/events',route((req,res)=>{
 app.use(express.static(dist));
 app.get('/{*rest}',(req,res)=>{if(req.path.startsWith('/api/'))res.status(404).json({error:'Not found'});else res.sendFile(path.join(dist,'index.html'));});
 app.use((error:Error & {status?:number;code?:string},_req:Request,res:Response,_next:NextFunction)=>{console.error(error.message);res.status(error.status||(error.code==='ENOENT'?404:400)).json({error:error.message});});
-const server=app.listen(PORT,'127.0.0.1',(error?:Error)=>{if(error){console.error('Could not start SceneForge: '+error.message);void exportsStore.shutdown(media.shutdownJobs).finally(()=>{process.exitCode=1;});return;}console.log(`SceneForge is ready at http://127.0.0.1:${PORT}`);});
+const server=app.listen(PORT,'127.0.0.1',(error?:Error)=>{if(error){console.error('Could not start Creator Compiler: '+error.message);void exportsStore.shutdown(media.shutdownJobs).finally(()=>{process.exitCode=1;});return;}console.log(`Creator Compiler is ready at http://127.0.0.1:${PORT}`);});
 let shuttingDown=false;
 const shutdown=()=>{if(shuttingDown)return;shuttingDown=true;server.close();void Promise.allSettled([exportsStore.shutdown(media.shutdownJobs),agentChat.shutdownAgentChats(),automation.shutdown()]).then(results=>{for(const result of results)if(result.status==='rejected')console.error(result.reason);});};
 process.on('SIGTERM',shutdown);process.on('SIGINT',shutdown);

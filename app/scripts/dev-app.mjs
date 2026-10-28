@@ -1,4 +1,4 @@
-// Builds `~/Applications/SceneForge Dev.app` (override with SCENEFORGE_DEV_APP_DIR): the local Electron runtime with its own name, icon and
+// Builds `~/Applications/Creator Compiler Dev.app` (override with SCENEFORGE_DEV_APP_DIR): the local Electron runtime with its own name, icon and
 // bundle identifier, running this source tree. macOS keys camera, microphone and screen
 // permissions to the signing identity, so sign it with a persistent certificate
 // (SCENEFORGE_DEV_SIGN_IDENTITY) to keep grants across rebuilds; ad-hoc signing works
@@ -12,7 +12,7 @@ import {fileURLToPath} from 'node:url';
 if(process.platform!=='darwin')throw Error('The development app bundle is macOS only.');
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const source=path.join(root,'node_modules/electron/dist/Electron.app');
-const target=path.join(process.env.SCENEFORGE_DEV_APP_DIR||path.join(os.homedir(),'Applications'),'SceneForge Dev.app');
+const target=path.join(process.env.SCENEFORGE_DEV_APP_DIR||path.join(os.homedir(),'Applications'),'Creator Compiler Dev.app');
 const plist=path.join(target,'Contents/Info.plist');
 const identity=process.env.SCENEFORGE_DEV_SIGN_IDENTITY||'-';
 const run=(command,args)=>execFileSync(command,args,{stdio:['ignore','pipe','inherit']}).toString().trim();
@@ -21,13 +21,13 @@ const set=(key,value)=>run('plutil',['-replace',key,'-string',value,plist]);
 await rm(target,{recursive:true,force:true});
 await mkdir(path.dirname(target),{recursive:true});
 await cp(source,target,{recursive:true,verbatimSymlinks:true});
-set('CFBundleName','SceneForge Dev');
-set('CFBundleDisplayName','SceneForge Dev');
+set('CFBundleName','Creator Compiler Dev');
+set('CFBundleDisplayName','Creator Compiler Dev');
 set('CFBundleIdentifier','com.samin.sceneforge.dev');
-set('CFBundleIconFile','sceneforge.icns');
-set('NSCameraUsageDescription','SceneForge records your camera for the scenes you capture.');
-set('NSMicrophoneUsageDescription','SceneForge records your microphone for the scenes you capture.');
-await copyFile(path.join(root,'assets/icon.icns'),path.join(target,'Contents/Resources/sceneforge.icns'));
+set('CFBundleIconFile','creator-compiler.icns');
+set('NSCameraUsageDescription','Creator Compiler records your camera for the scenes you capture.');
+set('NSMicrophoneUsageDescription','Creator Compiler records your microphone for the scenes you capture.');
+await copyFile(path.join(root,'assets/icon.icns'),path.join(target,'Contents/Resources/creator-compiler.icns'));
 // Electron loads Resources/app before its default app. A stub that requires the source
 // entry runs the live tree and keeps the bundle sealed (no symlink out of the bundle).
 const stub=path.join(target,'Contents/Resources/app'),{name,version}=JSON.parse(await readFile(path.join(root,'package.json'),'utf8'));

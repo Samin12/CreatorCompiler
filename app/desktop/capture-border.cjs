@@ -11,10 +11,10 @@ function createCaptureBorder({BrowserWindow}){
  const alive=w=>Boolean(w&&!w.isDestroyed());
  const clear=()=>{id=null;if(window&&!window.isDestroyed())window.destroy();window=null;};
  const dropSpare=()=>{const s=spare;spare=null;if(alive(s?.window))s.window.destroy();};
- // A panel floats over full-screen Spaces without turning SceneForge into an
+ // A panel floats over full-screen Spaces without turning Creator Compiler into an
  // accessory app (no Dock hide/show at record start).
  function create(bounds){
-  const created=new BrowserWindow({...bounds,title:'SceneForge capture area',type:'panel',frame:false,transparent:true,backgroundColor:'#00000000',hasShadow:false,resizable:false,movable:false,focusable:false,alwaysOnTop:true,skipTaskbar:true,show:false,enableLargerThanScreen:true,webPreferences:{contextIsolation:true,nodeIntegration:false,sandbox:true}});
+  const created=new BrowserWindow({...bounds,title:'Creator Compiler capture area',type:'panel',frame:false,transparent:true,backgroundColor:'#00000000',hasShadow:false,resizable:false,movable:false,focusable:false,alwaysOnTop:true,skipTaskbar:true,show:false,enableLargerThanScreen:true,webPreferences:{contextIsolation:true,nodeIntegration:false,sandbox:true}});
   created.setIgnoreMouseEvents(true);created.setAlwaysOnTop(true,'screen-saver');created.setVisibleOnAllWorkspaces(true,{visibleOnFullScreen:true,skipTransformProcessType:true});created.setContentProtection(true);created.webContents.setWindowOpenHandler(()=>({action:'deny'}));created.webContents.on('will-navigate',e=>e.preventDefault());
   return {window:created,loaded:created.loadFile(path.join(__dirname,'capture-border.html'))};
  }

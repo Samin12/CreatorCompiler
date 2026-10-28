@@ -12,66 +12,77 @@
 .timeline-drag-announcement{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
 .timeline{flex-direction:column}
 .timeline .timeline-scroll{min-height:0}
-.timeline-layer-toolbar{height:32px;min-height:32px;display:flex;align-items:center;gap:12px;padding:0 12px;border-bottom:1px solid var(--line);background:var(--background);position:relative;z-index:9}
-.timeline-layer-toolbar>span{font-size:10px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.timeline-add-layer{position:relative;flex-shrink:0}
-.timeline-add-layer-button{display:flex;align-items:center;gap:5px;border-radius:5px;font-size:11px;font-weight:600;padding:4px 6px;color:var(--foreground)}
-.timeline-add-layer-button:hover,.timeline-layer-controls button:hover{background:var(--input)}
-.timeline-add-layer-button:disabled{opacity:.5;cursor:not-allowed}
-.timeline-add-layer-menu{position:absolute;top:calc(100% + 4px);left:0;min-width:150px;padding:4px;border:1px solid var(--line);border-radius:7px;background:var(--background);box-shadow:0 5px 18px #0003;display:grid}
-.timeline-add-layer-menu>button{display:flex;align-items:center;gap:8px;padding:8px;text-align:left;font-size:12px;border-radius:4px;color:var(--foreground)}
-.timeline-add-layer-menu>button:hover,.timeline-add-layer-menu>button:focus-visible{background:var(--input)}
-.timeline .timeline-row.has-layer-controls:before{display:none}
-.timeline-layer-controls{position:sticky;left:12px;top:0;height:26px;width:max-content;max-width:calc(100% - 24px);display:flex;align-items:center;gap:4px;z-index:4;cursor:default}
-.timeline-layer-controls button{color:var(--muted);border-radius:4px;height:23px}
-.timeline-layer-controls .timeline-layer-name{font-size:10px;font-weight:600;padding:3px 5px;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.timeline-layer-controls .timeline-layer-remove{display:flex;align-items:center;justify-content:center;width:23px;color:var(--muted)}
-.timeline-layer-controls .timeline-layer-remove:hover{color:#dc2626}
-.timeline-layer-controls input{height:23px;width:180px;padding:2px 5px;border:1px solid #3b82f6;border-radius:4px;background:var(--background);color:var(--foreground);font-size:11px}
-.timeline-layer-controls button:focus-visible,.timeline-add-layer-button:focus-visible{outline:2px solid #3b82f6;outline-offset:1px}
-
-.timeline-scene{position:absolute;top:0;height:50px;display:flex;align-items:center;padding:0 6px 0 10px;cursor:grab;min-width:0;border:solid transparent;border-width:0 2px;background:var(--tl-scene) padding-box;border-radius:10px;color:var(--tl-scene-ink)}
-.timeline-scene:active{cursor:grabbing}.timeline-scene:hover{background-color:color-mix(in srgb,var(--tl-scene) 88%,white)}
-.timeline-scene .timeline-scene-title{position:sticky;left:10px;display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:3px;min-width:0;max-width:240px;overflow:hidden;text-align:left;color:inherit;cursor:grab}
-.timeline-scene-title>span{font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;opacity:.75;white-space:nowrap}.timeline-scene-title>span:before{content:'•';margin-right:5px}
-.timeline-scene-title>b{font-size:12px;font-weight:600;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.timeline-scene-actions{height:22px;min-width:18px;display:flex;align-items:center;justify-content:center;border-radius:4px;margin-left:4px;color:inherit}.timeline-scene-actions:hover{background:#ffffff40}
-.timeline-scene-menu{position:absolute;top:calc(100% + 3px);left:0;z-index:10;min-width:150px;padding:4px;border:1px solid var(--line);border-radius:6px;background:var(--background);box-shadow:0 5px 16px #0003;display:grid;cursor:default}
-.timeline-scene:has(.timeline-scene-menu){z-index:10}.timeline-scene-menu>button{text-align:left;padding:7px;font-size:12px;color:var(--foreground);border-radius:4px}.timeline-scene-menu>button:hover,.timeline-scene-menu>button:focus-visible{background:var(--input)}
-.timeline-scene.scene-drop-before{border-left:3px solid #3b82f6}.timeline-scene.scene-drop-after{border-right:3px solid #3b82f6}.timeline-scene-end-drop{position:absolute;top:0;height:50px;border-left:3px solid #3b82f6;pointer-events:none}
-.timeline-scene button:focus-visible{outline:2px solid #3b82f6;outline-offset:-1px}
-
-.timeline-waveform-toggle{display:flex;align-items:center;gap:5px;border:1px solid var(--line);border-radius:5px;font-size:11px;padding:3px 6px;color:var(--muted);white-space:nowrap}.timeline-waveform-toggle[aria-pressed=true]{background:var(--input);color:var(--foreground)}.timeline-waveform-toggle:focus-visible{outline:2px solid #3b82f6;outline-offset:1px}
-
 .timeline .playhead,.timeline .blade-guide{left:0;will-change:transform}
 
-/* Borumi-style edit timeline: one color per layer type, labels above dark strips, flat clips with a left-anchored thumbnail and a mirrored waveform in the lower band. Rows: 20px label + 42px strip + 8px gap. Clip borders are transparent so adjacent clips read as separate blocks 4px apart. */
-.timeline{--tl-bg:var(--background);--tl-row:#f0f0f2;--tl-label:#7a7a80;--tl-scene:#B57CF0;--tl-scene-ink:#24103d;--tl-screen:#2399a6;--tl-camera:#3F5CE6;--tl-mic:#3F5CE6;--tl-system:#3a86e8;--tl-overlay:#E8833A;--tl-music:#D9559A;--tl-elements:#E25C5C;--tl-captions:#4CA04B;--tl-zoom:#E0A526;--tl-wave:#1E2C8F;background:var(--tl-bg)}
-:root[data-theme=dark] .timeline{--tl-bg:#0E0E0E;--tl-row:#181818;--tl-label:#8c8c8c}
-.timeline .time-ruler{background:var(--tl-bg)}
-.timeline .scene-markers{position:relative;top:auto;z-index:4;height:50px;margin:6px 0 8px;background:transparent;border-bottom:0}
-.timeline .timeline-row{height:62px;margin-bottom:8px;border:0;background:linear-gradient(to bottom,transparent 20px,var(--tl-row) 20px) no-repeat}
-.timeline .timeline-row.layer-drop-target{background-image:linear-gradient(to bottom,transparent 20px,color-mix(in srgb,var(--tl-row) 75%,#3b82f6) 20px)}
-:root .timeline .timeline-row:before{position:sticky;left:12px;top:0;width:max-content;height:20px;padding:0;line-height:20px;font-size:9px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--tl-label)}
-.timeline .timeline-layer-controls{height:20px}.timeline .timeline-layer-controls button{height:18px;color:var(--tl-label)}.timeline .timeline-layer-controls .timeline-layer-name{font-size:9px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;padding:1px 4px}.timeline .timeline-layer-controls .timeline-layer-remove{width:18px}.timeline .timeline-layer-controls input{height:18px}
-.timeline .timeline-clip,.timeline .timeline-effect{top:22px;height:38px;border:solid transparent;border-width:0 2px;border-radius:11px;background-clip:padding-box;box-shadow:none;color:#fff;font-size:12px}
-.timeline .timeline-clip{display:flex;align-items:flex-start;gap:0;padding:0;overflow:clip;background-color:var(--tl-camera)}
-.timeline .timeline-clip>.clip-thumb{position:sticky;left:6px;z-index:2;align-self:center;width:46px;height:26px;margin-left:6px;border-radius:7px;object-fit:cover;opacity:1;background:#0003}
-.timeline .timeline-clip>span{position:sticky;left:8px;z-index:2;max-width:calc(100% - 16px);margin-left:8px;padding:0;line-height:20px;font-size:12px;font-weight:500;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-shadow:0 1px 1px #0003}
-.timeline .timeline-clip>.clip-thumb+span{left:60px;max-width:calc(100% - 68px)}
-.timeline .clip-screen{background-color:var(--tl-screen);--tl-wave:#0b4a52}
-.timeline .clip-camera{background-color:var(--tl-camera)}
-.timeline .clip-audio{background-color:var(--tl-mic)}.timeline .clip-audio.clip-role-system{background-color:var(--tl-system);--tl-wave:#163f86}
-.timeline .clip-overlay{background-color:var(--tl-overlay);--tl-wave:#6e3208}
-.timeline .clip-music{background-color:var(--tl-music);--tl-wave:#6d1844}
-/* The waveform spans the clip's full pixel width (through the transparent borders), so its x matches clip pixels; the inset keeps it 8px off both ends and below the label band. */
-.timeline .clip-waveform{position:absolute;inset:auto -2px 1px;width:auto;height:22px;opacity:1;color:var(--tl-wave);clip-path:inset(0 8px);pointer-events:none;z-index:1}
-.timeline .clip-waveform-envelope{fill:currentColor;fill-opacity:.8}
-.timeline .clip-waveform-baseline{fill:none;stroke:currentColor;stroke-opacity:.8;stroke-width:1px}
-.timeline .timeline-effect{padding:0 10px;line-height:38px;font-weight:500;text-align:left;background-color:var(--tl-elements)}
-.timeline .row-captions .timeline-effect{background-color:var(--tl-captions);color:#fff}
-.timeline .row-zooms .timeline-effect{background-color:var(--tl-zoom);color:#2b1d00}
-.timeline .timeline-clip.selected,.timeline .timeline-effect.selected{outline:2px solid #fff;outline-offset:-2px}
-:root:not([data-theme=dark]) .timeline .timeline-clip.selected,:root:not([data-theme=dark]) .timeline .timeline-effect.selected{outline-color:#0a0a0a}
-.timeline .timeline-clip:hover .trim-handle{background:#ffffff40}
-.timeline .playhead{z-index:8;background:var(--foreground)}.timeline .playhead>span{background:var(--foreground)}
+/* Add layer sits in the timeline toolbar; its menu opens over the timeline. */
+.timeline-add-layer{position:relative;flex-shrink:0;display:flex}
+.timeline-add-layer-menu{position:absolute;top:calc(100% + 4px);right:0;z-index:20;min-width:150px;padding:4px;border:1px solid var(--line);border-radius:7px;background:var(--background);box-shadow:0 5px 18px #0003;display:grid}
+.timeline-add-layer-menu>button{display:flex;align-items:center;gap:8px;padding:8px;text-align:left;font-size:12px;border-radius:4px;color:var(--foreground)}
+.timeline-add-layer-menu>button:hover,.timeline-add-layer-menu>button:focus-visible{background:var(--input)}
+.timeline-notice{position:absolute;top:34px;right:12px;z-index:12;max-width:min(420px,60%);padding:6px 10px;border-radius:6px;background:#0a0a0a;color:#fff;font-size:12px;line-height:1.4;box-shadow:0 4px 14px #0003;cursor:pointer}
+
+/* Borumi-style edit timeline, measured from the installed Borumi: a plain time ruler, a thin row of "• SCENE n" markers,
+   light grey row bands with small uppercase labels at the left that clips cover, and soft rounded clips (blue for picture,
+   green for voice) with a translucent text strip on top, a thumbnail below it and a dark waveform. Clip rows are 56px,
+   effect rows 34px, 4px apart. Clips keep a 2px transparent border so neighbours read as separate blocks and the
+   selection ring has a gap. */
+.timeline{--tl-bg:var(--background);--tl-row:#fafafa;--tl-label:#525252;--tl-ruler:#262626;--tl-tick:#e5e5e5;--tl-scene:#525252;--tl-dot:#a3a3a3;--tl-playhead:#8a8a8a;--tl-hatch:#e2e2e2;--tl-ink:#0a0a0a;--tl-pill:#ffffff85;--tl-video:#60a5fa;--tl-video-wave:#2f5f9e;--tl-audio:#4ade80;--tl-audio-wave:#22844a;--tl-music:#f472b6;--tl-music-wave:#9d2463;--tl-elements:#c084fc;--tl-captions:#d4d4d8;--tl-zoom:#fbbf24;position:relative;z-index:1;background:var(--tl-bg)}
+:root[data-theme=dark] .timeline{--tl-row:#141414;--tl-label:#a3a3a3;--tl-ruler:#e5e5e5;--tl-tick:#2a2a2a;--tl-scene:#a3a3a3;--tl-dot:#737373;--tl-playhead:#a3a3a3;--tl-hatch:#2a2a2a}
+
+.timeline .time-ruler{height:28px;background:var(--tl-bg);border-bottom:0}
+.timeline .time-ruler>span{top:0;height:20px;padding:6px 0 0 7px;border-left:1px solid var(--tl-tick);font-size:12px;font-weight:500;line-height:1;color:var(--tl-ruler)}
+
+.timeline .scene-markers{position:sticky;top:28px;z-index:6;height:22px;margin:0 0 4px;background:var(--tl-bg);border:0}
+.timeline-scene{position:absolute;top:0;height:22px;display:flex;align-items:center;min-width:0;padding:0 2px 0 4px;border:solid transparent;border-width:0 2px;border-radius:5px;background:none;color:var(--tl-scene);cursor:grab}
+.timeline-scene:active{cursor:grabbing}.timeline-scene:hover{background:var(--tl-row)}
+.timeline-scene .timeline-scene-title{position:sticky;left:8px;display:flex;align-items:center;gap:6px;height:22px;min-width:0;max-width:300px;padding:0;overflow:hidden;text-align:left;color:inherit;cursor:grab}
+.timeline-scene-title>span{font-size:9px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;white-space:nowrap}.timeline-scene-title>span:before{content:'•';color:var(--tl-dot);margin-right:5px}
+.timeline-scene-title>b{font-size:11px;font-weight:500;color:var(--muted);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.timeline-scene-actions{height:18px;min-width:16px;display:flex;align-items:center;justify-content:center;margin-left:2px;border-radius:4px;color:var(--muted);opacity:0}
+.timeline-scene:hover .timeline-scene-actions,.timeline-scene-actions:focus-visible,.timeline-scene-actions[aria-expanded=true]{opacity:1}.timeline-scene-actions:hover{background:var(--input);color:var(--foreground)}
+.timeline-scene-menu{position:absolute;top:calc(100% + 3px);left:0;z-index:10;min-width:150px;padding:4px;border:1px solid var(--line);border-radius:6px;background:var(--background);box-shadow:0 5px 16px #0003;display:grid;cursor:default}
+.timeline-scene:has(.timeline-scene-menu){z-index:10}.timeline-scene-menu>button{text-align:left;padding:7px;font-size:12px;color:var(--foreground);border-radius:4px}.timeline-scene-menu>button:hover,.timeline-scene-menu>button:focus-visible{background:var(--input)}
+.timeline-scene.scene-drop-before{border-left:3px solid #3b82f6}.timeline-scene.scene-drop-after{border-right:3px solid #3b82f6}.timeline-scene-end-drop{position:absolute;top:0;height:22px;border-left:3px solid #3b82f6;pointer-events:none}
+.timeline-scene button:focus-visible{outline:2px solid #3b82f6;outline-offset:-1px}
+
+.timeline .timeline-row{height:56px;margin:0 0 4px;border:0;background:var(--tl-row);background-image:none}
+.timeline .timeline-row.effect-row{height:34px}
+.timeline .timeline-row.layer-drop-target{background:color-mix(in srgb,var(--tl-row) 75%,#3b82f6)}
+.timeline .timeline-row:before{content:attr(data-label);position:sticky;left:12px;top:auto;z-index:0;display:flex;align-items:center;width:max-content;height:100%;padding:0;font-size:9px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--tl-label);pointer-events:none}
+.timeline .timeline-row.has-layer-controls:before{display:none}
+.timeline-layer-controls{position:sticky;left:8px;top:auto;z-index:0;height:100%;width:max-content;max-width:calc(100% - 16px);display:flex;align-items:center;gap:2px;cursor:default}
+.timeline-layer-controls button{height:20px;border-radius:4px;color:var(--tl-label)}.timeline-layer-controls button:hover{background:var(--input)}
+.timeline-layer-controls .timeline-layer-name{max-width:240px;padding:2px 4px;font-size:9px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.timeline-layer-controls .timeline-layer-remove{display:flex;align-items:center;justify-content:center;width:20px;opacity:0}
+.timeline-row:hover .timeline-layer-remove,.timeline-layer-controls .timeline-layer-remove:focus-visible{opacity:1}.timeline-layer-controls .timeline-layer-remove:hover{color:#dc2626}
+.timeline-layer-controls input{height:20px;width:180px;padding:2px 5px;border:1px solid #3b82f6;border-radius:4px;background:var(--background);color:var(--foreground);font-size:11px}
+.timeline-layer-controls button:focus-visible{outline:2px solid #3b82f6;outline-offset:1px}
+
+.timeline .timeline-clip,.timeline .timeline-effect{top:0;height:100%;z-index:1;border:2px solid transparent;border-radius:12px;background-clip:padding-box;background-image:linear-gradient(to bottom,transparent 55%,#00000014);box-shadow:none;color:var(--tl-ink);font-size:12px}
+.timeline .timeline-clip{--clip:var(--tl-video);--clip-wave:var(--tl-video-wave);display:block;padding:0;overflow:clip;background-color:var(--clip)}
+.timeline .clip-audio{--clip:var(--tl-audio);--clip-wave:var(--tl-audio-wave)}
+.timeline .clip-music{--clip:var(--tl-music);--clip-wave:var(--tl-music-wave)}
+/* Text strip across the clip; the words stick to the left edge while a long clip scrolls. */
+.timeline .timeline-clip:before{content:'';position:absolute;top:4px;left:4px;right:4px;height:18px;border-radius:7px;background:var(--tl-pill);pointer-events:none}
+.timeline .timeline-clip>span{position:sticky;left:10px;z-index:2;display:block;width:max-content;max-width:calc(100% - 8px);height:18px;margin:4px 0 0 4px;padding:0 6px;line-height:18px;font-size:12px;font-weight:500;color:var(--tl-ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-shadow:none;pointer-events:none}
+/* Picture without sound: the thumbnail fills the left of the clip and the name sits beside it. With sound: a small
+   thumbnail under the text strip, over the waveform. */
+.timeline .timeline-clip>.clip-thumb{position:absolute;z-index:2;left:4px;top:4px;width:78px;height:44px;margin:0;border-radius:7px;object-fit:cover;opacity:1;background:#0002;pointer-events:none}
+.timeline .timeline-clip:not(.has-waveform):has(>.clip-thumb):before{left:86px}
+.timeline .timeline-clip:not(.has-waveform)>.clip-thumb+span{position:relative;left:auto;margin-left:86px;max-width:calc(100% - 90px)}
+.timeline .timeline-clip.has-waveform>.clip-thumb{top:26px;width:40px;height:22px;border-radius:5px}
+/* The waveform spans the clip's full pixel width (through the transparent borders), so its x matches clip pixels. */
+.timeline .clip-waveform{position:absolute;top:25px;left:-2px;width:calc(100% + 4px);height:24px;opacity:1;color:var(--clip-wave);clip-path:inset(0 6px);pointer-events:none;z-index:1}
+.timeline .clip-waveform-envelope{fill:currentColor;fill-opacity:.85}
+.timeline .clip-waveform-baseline{fill:none;stroke:currentColor;stroke-opacity:.6;stroke-width:1px}
+.timeline .timeline-effect{padding:0 10px;font-size:12px;font-weight:600;line-height:30px;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-radius:10px;background-color:var(--tl-elements)}
+.timeline .row-captions .timeline-effect{background-color:var(--tl-captions);color:var(--tl-ink)}
+.timeline .row-zooms .timeline-effect{background-color:var(--tl-zoom);color:var(--tl-ink)}
+.timeline .timeline-clip.selected,.timeline .timeline-effect.selected{outline:2px solid #3b82f6;outline-offset:0;z-index:3}
+.timeline .timeline-clip.muted{opacity:.45}
+.timeline .timeline-clip:hover .trim-handle{background:#0000001f}
+
+.timeline .playhead{top:0;bottom:0;width:1px;z-index:8;background:var(--tl-playhead)}
+.timeline .playhead>span{top:4px;left:-5px;width:11px;height:15px;border-radius:0;background:var(--tl-playhead);clip-path:path('M5.5 0C8.54 0 11 2.46 11 5.5c0 3.2-3.1 6.6-5.5 9.5C3.1 12.1 0 8.7 0 5.5 0 2.46 2.46 0 5.5 0Z')}
+/* Hatched strip just past the end of the project, as in Borumi. */
+.timeline-end{position:absolute;top:54px;bottom:0;width:12px;z-index:0;pointer-events:none;background:repeating-linear-gradient(-45deg,var(--tl-hatch) 0 2px,transparent 2px 6px)}

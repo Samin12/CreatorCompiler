@@ -50,7 +50,7 @@ For deleted projects, call `list_trashed_projects`, then review the chosen item 
 
 ## Trust and provider use
 
-There is no connected-client badge asserting that a particular assistant is trusted or authenticated. The connection grants local editing capability. Read [privacy](PRIVACY.md) before connecting an assistant, especially one backed by a hosted model. Cloud AI operations use the provider and key configured in SceneForge; costs and provider policies are separate.
+There is no connected-client badge asserting that a particular assistant is trusted or authenticated. The connection grants local editing capability. Read [privacy](PRIVACY.md) before connecting an assistant, especially one backed by a hosted model. Cloud AI operations use the provider and key configured in Creator Compiler; costs and provider policies are separate.
 
 
 ## Saved export recovery

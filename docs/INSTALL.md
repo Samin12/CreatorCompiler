@@ -1,30 +1,32 @@
-# Install and build SceneForge
+# Install and build Creator Compiler
 
 ## Desktop preview
 
 The target is macOS 14 or later on Apple Silicon (M1 or newer). Intel macOS, Windows and Linux desktop releases are not provided.
 
-1. Download **`SceneForge-macOS-arm64.dmg`** from the [release page](https://github.com/Samin12/SceneForge/releases/tag/v0.1.0-preview.3) and compare it with the checksum published for that release.
-2. Open the disk image and drag **SceneForge** onto **Applications**. Eject the disk image, then open SceneForge from Applications.
+1. Download **`Creator-Compiler-macOS-arm64.dmg`** (named `SceneForge-macOS-arm64.dmg` in v0.1.0-preview.3 and earlier) from the [release page](https://github.com/Samin12/CreatorCompiler/releases/tag/v0.1.0-preview.3) and compare it with the checksum published for that release.
+2. Open the disk image and drag **Creator Compiler** onto **Applications**. Eject the disk image, then open Creator Compiler from Applications.
 3. This prerelease is Apple Development signed with a stable identity, but is not Apple-notarized. If macOS blocks it, read [Apple's instructions](https://support.apple.com/guide/mac-help/open-a-mac-app-from-an-unknown-developer-mh40616/mac) and decide whether you trust that release.
 4. Follow setup to enable the capture sources you want, or skip permissions and import existing media. Check your live preview and review a short export before starting important work.
 
-The **`SceneForge-macOS-arm64.zip`** download is an alternative: unzip it, then move `SceneForge.app` into Applications yourself. Both downloads contain the same application. They are not separate editions.
+The **`Creator-Compiler-macOS-arm64.zip`** download is an alternative: unzip it, then move `Creator Compiler.app` into Applications yourself. Both downloads contain the same application. They are not separate editions.
 
 Screen, camera and microphone capture use macOS permissions. Setup requests access only when you choose a source or press its enable button. You can close setup while a system prompt is pending and return through **Setup** or Settings. A system prompt may remain open after setup closes. The available display/window/audio sources depend on Electron, macOS and the selected device. Grant only the access you intend to use.
 
-The desktop download includes `ffmpeg`, `ffprobe`, `whisper-cli`, the English `ggml-base.en.bin` model, and precompiled SceneForge text/Vision helpers. You do not need Homebrew, Xcode or a separate media-tool installation to use the downloaded app. The packaged runtime was tested with an isolated service/MCP profile and `PATH=/usr/bin:/bin`: local transcription, MCP edits, composed-frame inspection, an audiovisual export and Apple Vision processing passed. This was not a fresh GUI profile or a separate physical Mac. See [current validation](VALIDATION.md) for completed export checks and remaining physical capture boundaries. The included `runtime/manifest.json` records the runtime build; `runtime/models/model.json` records model provenance and its checksum. Other languages require a suitable Whisper model.
+The desktop download includes `ffmpeg`, `ffprobe`, `whisper-cli`, the English `ggml-base.en.bin` model, and precompiled Creator Compiler text/Vision helpers. You do not need Homebrew, Xcode or a separate media-tool installation to use the downloaded app. The packaged runtime was tested with an isolated service/MCP profile and `PATH=/usr/bin:/bin`: local transcription, MCP edits, composed-frame inspection, an audiovisual export and Apple Vision processing passed. This was not a fresh GUI profile or a separate physical Mac. See [current validation](VALIDATION.md) for completed export checks and remaining physical capture boundaries. The included `runtime/manifest.json` records the runtime build; `runtime/models/model.json` records model provenance and its checksum. Other languages require a suitable Whisper model.
 
 The app has no automatic updater. Download and install a newer release manually; replacing the app does not intentionally erase the local studio folder. Current releases pin the same signing identity for the application and its helpers. Camera, microphone and screen access survived an installed A→B→A update test on one Mac without new consent prompts. This is not a guarantee against macOS revoking access. The first transition from an older ad-hoc build can require consent once.
 
-If access is blocked, open **Mac setup** and review the current OS status. Enable only the sources you want and answer the actual macOS prompt. Quit and reopen after changing screen-recording permission. If an old ad-hoc SceneForge entry remains enabled but the new app is denied, remove that stale entry in **System Settings → Privacy & Security → Screen & System Audio Recording**, add the current app from Applications, and allow it. Authenticate if macOS asks. The app does not bypass or reset these permissions. [Signing details](SIGNING.md).
+If access is blocked, open **Mac setup** and review the current OS status. Enable only the sources you want and answer the actual macOS prompt. Quit and reopen after changing screen-recording permission. If an old ad-hoc Creator Compiler entry remains enabled but the new app is denied, remove that stale entry in **System Settings → Privacy & Security → Screen & System Audio Recording**, add the current app from Applications, and allow it. Authenticate if macOS asks. The app does not bypass or reset these permissions. [Signing details](SIGNING.md).
 
 ## Data location
+
+Creator Compiler was previously called SceneForge. On first launch it moves an existing `~/Library/Application Support/SceneForge` folder to `~/Library/Application Support/Creator Compiler`, so projects and settings carry over. The app keeps the bundle identifier `com.samin.sceneforge`, so macOS permissions you already granted stay in place.
 
 By default, projects, history, trash, recordings, cache, exports, catalog entries and AI configuration are stored under:
 
 ```text
-~/Library/Application Support/SceneForge/studio
+~/Library/Application Support/Creator Compiler/studio
 ```
 
 Imported original media remains at its source path. Back up the studio folder **and** referenced source media; project JSON alone is not a portable media archive. Appearance and keyboard preferences are stored in the desktop renderer's local storage. See [privacy](PRIVACY.md).
@@ -58,7 +60,7 @@ The pinned recipe downloads upstream source archives, verifies SHA-256, builds l
 node app/scripts/build-runtime.mjs
 ```
 
-Outputs are in `app/runtime/`; corresponding sources and build configuration are packaged as `release/SceneForge-runtime-sources.zip`. Build caches and downloaded sources are ignored by Git. The recipe does not claim byte-for-byte reproducibility across different Apple SDK or compiler versions.
+Outputs are in `app/runtime/`; corresponding sources and build configuration are packaged as `release/Creator-Compiler-runtime-sources.zip`. Build caches and downloaded sources are ignored by Git. The recipe does not claim byte-for-byte reproducibility across different Apple SDK or compiler versions.
 
 Run the application build and packaging from `app`:
 

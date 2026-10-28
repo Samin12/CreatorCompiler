@@ -38,7 +38,7 @@ test(
       t.skip("Local consented portrait fixture absent");
       return;
     }
-    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "sceneforge-vision-"));
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "creator-compiler-vision-"));
     try {
       assert.ok((await getVisionCapabilities()).personSegmentation);
       const face = await detectFace(fixture);

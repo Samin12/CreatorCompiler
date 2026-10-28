@@ -1,4 +1,4 @@
-# SceneForge local API
+# Creator Compiler local API
 
 The editor and stdio MCP server use the same loopback HTTP service. The default base URL is `http://127.0.0.1:4174/api`. The service binds to `127.0.0.1`, checks request hosts and permitted local origins, and has no per-client authentication token. Do not expose it through a public proxy. See [privacy and local control](../../docs/PRIVACY.md).
 
@@ -10,7 +10,7 @@ The independent model is defined in [types.ts](types.ts). Times are seconds. Cli
 
 | Route | Response |
 | --- | --- |
-| `GET /ready` | `{application:'SceneForge',version:string}` immediately, without media probing. Launchers poll this. |
+| `GET /ready` | `{application:'Creator Compiler',version:string}` immediately, without media probing. Launchers poll this. |
 | `GET /health` | Capability object below, plus `dataDir`. |
 | `GET /capabilities` | The same capability object without `dataDir`. |
 
@@ -18,7 +18,7 @@ The media capability probe (FFmpeg encoder list and a VideoToolbox test encode) 
 
 ```ts
 {
-  application: 'SceneForge',
+  application: 'Creator Compiler',
   version: string,
   ffmpeg: boolean,
   ffprobe: boolean,
@@ -34,7 +34,7 @@ The media capability probe (FFmpeg encoder list and a VideoToolbox test encode) 
 }
 ```
 
-`mcp.command` uses `SCENEFORGE_MCP_COMMAND` when provided. The packaged bootstrap derives that value from the actual app bundle, including an app moved to `/Applications`. An unconfigured development service falls back to `~/Applications/SceneForge.app/Contents/MacOS/sceneforge-mcp`; that fallback is not proof the launcher exists. The current source tool count is 39; earlier validated packages expose 31. Discovery describes the running service's tools; it does not assert that an assistant is connected. Capability flags describe detection/platform support rather than a guarantee that every device, codec or model request succeeds.
+`mcp.command` uses `SCENEFORGE_MCP_COMMAND` when provided. The packaged bootstrap derives that value from the actual app bundle, including an app moved to `/Applications`. An unconfigured development service falls back to `~/Applications/Creator Compiler.app/Contents/MacOS/creator-compiler-mcp`; that fallback is not proof the launcher exists. The current source tool count is 39; earlier validated packages expose 31. Discovery describes the running service's tools; it does not assert that an assistant is connected. Capability flags describe detection/platform support rather than a guarantee that every device, codec or model request succeeds.
 
 ## Projects and conditional writes
 
@@ -152,7 +152,7 @@ Importing Borumi now preserves a managed SQLite snapshot under the local studio 
 | `POST /projects/:id/borumi/plan` | `{}` | `{revision,plan,requiresTemplate}` with supported changes, blockers and warnings. |
 | `POST /projects/:id/borumi/export` | `{templateProjectId?:string,outputDirectory?:string}` | New-copy result and `sourceRevision`. |
 
-Export requires `If-Match` equal to the reviewed plan revision; a missing or stale revision returns `409`. A new SceneForge project requires a prior-import template ID for observed native schema metadata. Optional `outputDirectory` must be an absolute local folder; omission uses the managed export folder. Resolved paths inside the original/template bundle are rejected, including symlink aliases. The exporter chooses a unique new bundle path and rejects unsupported project changes. Native opening was checked on the recorded acceptance fixtures; universal Borumi-version compatibility is not claimed.
+Export requires `If-Match` equal to the reviewed plan revision; a missing or stale revision returns `409`. A new Creator Compiler project requires a prior-import template ID for observed native schema metadata. Optional `outputDirectory` must be an absolute local folder; omission uses the managed export folder. Resolved paths inside the original/template bundle are rejected, including symlink aliases. The exporter chooses a unique new bundle path and rejects unsupported project changes. Native opening was checked on the recorded acceptance fixtures; universal Borumi-version compatibility is not claimed.
 
 ## Recoverable recording
 

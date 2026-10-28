@@ -3,7 +3,7 @@ import path from 'node:path';
 import os from 'node:os';
 import {randomUUID} from 'node:crypto';
 import type {MCPSettings} from '../shared/types.js';
-export const AI_WORKSPACE_NAME='SceneForge AI Workspace';
+export const AI_WORKSPACE_NAME='Creator Compiler AI Workspace';
 export const defaultWorkspaceLocation=()=>path.join(os.homedir(),'Documents');
 type Stored={enabled:boolean;workspaceLocation:string};
 const fileIn=(dataDir:string)=>path.join(dataDir,'mcp-settings.json');

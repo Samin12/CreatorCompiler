@@ -27,3 +27,14 @@ test('only clips and items inside the quantized window render, without per-bar l
 test('blade guide is mounted hidden for the blade tool and positioned without a render per pointer move',()=>{
  assert.doesNotMatch(render(project(),0),/blade-guide/);assert.match(render(project(),0,{tool:'blade'}),/<div class="blade-guide" hidden=""><\/div>/);
 });
+test('camera and microphone clips read as their words, and system sound gets its own row instead of stacking on Audio',()=>{
+ const p=createProject(),camera:Media={id:'camera',path:'/fixture/camera.mov',name:'Camera',kind:'video',duration:10,width:1920,height:1080},mic:Media={id:'mic',path:'/fixture/mic.wav',name:'Mic',kind:'audio',duration:10,width:0,height:0,audioRole:'microphone'},system:Media={id:'system',path:'/fixture/system.wav',name:'System',kind:'audio',duration:10,width:0,height:0,audioRole:'system'};
+ p.media=[camera,mic,system];p.clips=[clip('cam','camera','camera',0,4),clip('mic','mic','audio',0,4),clip('sys','system','audio',0,4),clip('late','camera','camera',6,2)];
+ p.captions=[{id:'c2',start:2,end:3.5,text:'second line.'},{id:'c1',start:0,end:2,text:'First line,'},{id:'c3',start:4.5,end:5.5,text:'Between clips'}];
+ const html=render(p,0),row=(id:string)=>html.slice(html.indexOf(`data-track="${id}"`)).split('class="timeline-row')[0];
+ assert.match(row('role:camera'),/<span>First line, second line\.<\/span>/);
+ assert.match(row('role:camera'),/<span>Clip late<\/span>/,'a clip with no captions under it keeps its name');
+ assert.match(row('role:audio'),/data-clip-id="mic"[^]*<span>First line, second line\.<\/span>/);
+ assert.doesNotMatch(row('role:audio'),/data-clip-id="sys"/);
+ assert.match(row('role:audio:system'),/data-label="System audio"[^]*data-clip-id="sys"[^]*<span>Clip sys<\/span>/);
+});

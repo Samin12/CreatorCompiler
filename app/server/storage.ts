@@ -1,4 +1,4 @@
-import { promises as fs, constants as fsConstants, type Stats } from 'node:fs';
+import { existsSync, promises as fs, constants as fsConstants, type Stats } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { createHash, randomUUID } from 'node:crypto';
@@ -6,7 +6,9 @@ import {EventEmitter} from 'node:events';
 import { createProject, projectDuration, isAudioRole, type Project, type Media, type AISettings } from '../shared/types.js';
 import type {TrashProjectSummary,TrashRestoreResult} from '../shared/recovery.js';
 
-export const DATA_DIR=path.resolve(process.env.SCENEFORGE_DATA_DIR||path.join(os.homedir(),'Library/Application Support/SceneForge/studio'));
+const SUPPORT=path.join(os.homedir(),'Library/Application Support'),CURRENT_STUDIO=path.join(SUPPORT,'Creator Compiler/studio'),LEGACY_STUDIO=path.join(SUPPORT,'SceneForge/studio');
+/** The desktop app moves a SceneForge folder on first launch; until then a standalone server keeps reading it. */
+export const DATA_DIR=path.resolve(process.env.SCENEFORGE_DATA_DIR||(!existsSync(CURRENT_STUDIO)&&existsSync(LEGACY_STUDIO)?LEGACY_STUDIO:CURRENT_STUDIO));
 export const CACHE_DIR=path.join(DATA_DIR,'cache');
 export const OUTPUT_DIR=path.join(DATA_DIR,'exports');
 export const UPLOAD_DIR=path.join(DATA_DIR,'media');

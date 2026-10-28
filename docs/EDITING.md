@@ -1,18 +1,18 @@
 # Transcription and quick edits
 
-Automatic transcription is enabled by default. When a project with audible source clips is opened or saved, SceneForge uses its local speech model and maps the words through the clip trims and playback speeds. The downloaded app includes an English model. Other languages need a suitable local model.
+Automatic transcription is enabled by default. When a project with audible source clips is opened or saved, Creator Compiler uses its local speech model and maps the words through the clip trims and playback speeds. The downloaded app includes an English model. Other languages need a suitable local model.
 
 Change **Settings → AI & transcription → Automatic transcription** to turn it off. The Transcript panel shows progress, Cancel and Retry. Automatic jobs run locally even when a cloud provider is selected for manual AI requests. Existing or manually edited captions are preserved where they overlap generated words. Speech recognition can be wrong; listen before deleting or exporting.
 
 ## Delete words and their footage
 
-In **Edit → Transcript**, drag across timed words to select a phrase. The selection shows its time interval. Press **Delete** or **Backspace**, or click **Delete selection**, to remove that interval from all timeline tracks and close the gap. SceneForge adjusts captions and other timed items with the edit. Use **Undo** to restore it.
+In **Edit → Transcript**, drag across timed words to select a phrase. The selection shows its time interval. Press **Delete** or **Backspace**, or click **Delete selection**, to remove that interval from all timeline tracks and close the gap. Creator Compiler adjusts captions and other timed items with the edit. Use **Undo** to restore it.
 
 Double-click selects a sentence. Shift-arrow extends a selection; Escape clears it. Select All while the transcript has focus selects the transcript words. Text without usable word timing is selected as a whole caption. When recognized words overlap, check the interval notice and playback before keeping the cut.
 
 ## Auto-cut
 
-Choose **Auto-cut** near the editor controls, then **Create proposal**. SceneForge checks local audio against transcript timing for quiet gaps and identifies exact repeated-take candidates. These are suggestions; repeated material may be intentional. Read the reason and interval for each proposal, then choose which to apply.
+Choose **Auto-cut** near the editor controls, then **Create proposal**. Creator Compiler checks local audio against transcript timing for quiet gaps and identifies exact repeated-take candidates. These are suggestions; repeated material may be intentional. Read the reason and interval for each proposal, then choose which to apply.
 
 The optional **Ask Claude for narrative cuts** checkbox is off by default. Enabling it sends timed transcript and scene context to your installed Claude Code account. Provider usage and costs apply. This analysis returns proposals; it does not apply edits on its own. Ordinary Auto-cut does not require Claude or cloud processing.
 

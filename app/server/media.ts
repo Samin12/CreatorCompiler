@@ -607,7 +607,7 @@ async function rasterize(
   if (!rasterizer)
     rasterizer = (async () => {
       const bundled = fileURLToPath(
-        new URL("./sceneforge-text-renderer", import.meta.url),
+        new URL("./creator-compiler-text-renderer", import.meta.url),
       );
       try {
         await fs.access(bundled, 1);
@@ -618,7 +618,7 @@ async function rasterize(
       );
       const cache = path.join(
         tmpdir(),
-        `sceneforge-text-renderer-${hash(await fs.readFile(source, "utf8"))}`,
+        `creator-compiler-text-renderer-${hash(await fs.readFile(source, "utf8"))}`,
       );
       if (!(await exists(cache)))
         await command(
@@ -1008,7 +1008,7 @@ async function executeExport(
               );
             maskFile = await personMask(
               m.path,
-              path.join(tmpdir(), "sceneforge-vision-masks-v1"),
+              path.join(tmpdir(), "creator-compiler-vision-masks-v1"),
               {
                 start: m.kind === "image" ? 0 : c.sourceIn,
                 end: (m.kind === "image" ? 0 : c.sourceIn) + sourceDur,

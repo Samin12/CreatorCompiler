@@ -102,7 +102,7 @@ test('external MCP calls honor the Enable MCP setting on every call, and older s
  const legacy=gateToolHandler(inner,'http://127.0.0.1:45678/api',async()=>Response.json({error:'missing'},{status:404}));await legacy('get_guides');assert.equal(calls,3);
 });
 test('MCP settings default on, persist, create the named workspace folder and reject unsafe locations',async()=>{
- const dir=await mkdtemp(join(tmpdir(),'sceneforge-mcp-settings-'));try{
+ const dir=await mkdtemp(join(tmpdir(),'creator-compiler-mcp-settings-'));try{
   const initial=await readMCPSettings(dir);assert.equal(initial.enabled,true);assert.ok(initial.workspacePath.endsWith(AI_WORKSPACE_NAME));
   const chosen=join(dir,'chosen');await mkdir(chosen);
   const saved=await saveMCPSettings(dir,{enabled:false,workspaceLocation:chosen});assert.deepEqual(saved,{enabled:false,workspaceLocation:chosen,workspacePath:join(chosen,AI_WORKSPACE_NAME)});assert.deepEqual(await readMCPSettings(dir),saved);

@@ -24,7 +24,7 @@ export function signingDescription(details){
 
 // Kept separate so the disk-image writer can be tested with ordinary fixture
 // files, without creating a fake application or changing the release bundle.
-export async function createDiskImage(sourceDirectory,outputFile,{volumeName='SceneForge'}={}){
+export async function createDiskImage(sourceDirectory,outputFile,{volumeName='Creator Compiler'}={}){
   if(process.platform!=='darwin')throw Error('Disk-image packaging requires macOS and hdiutil.');
   const source=path.resolve(sourceDirectory),output=path.resolve(outputFile);
   const relative=path.relative(source,output);
@@ -47,29 +47,29 @@ export async function createDiskImage(sourceDirectory,outputFile,{volumeName='Sc
 
 export async function createDmg(appPath,outputFile){
   const application=path.resolve(appPath);
-  if(path.basename(application)!=='SceneForge.app')throw Error('Expected the packaged SceneForge.app.');
+  if(path.basename(application)!=='Creator Compiler.app')throw Error('Expected the packaged Creator Compiler.app.');
   await access(path.join(application,'Contents','Info.plist'));
-  await access(path.join(application,'Contents','MacOS','SceneForge'));
+  await access(path.join(application,'Contents','MacOS','Creator Compiler'));
   const signature=await run('/usr/bin/codesign',['--display','--verbose=2',application]);
   const signing=signingDescription(signature.stdout+'\n'+signature.stderr);
   const staging=await mkdtemp(path.join(tmpdir(),'sceneforge-installer-'));
   try{
     // Preserve executable bits and symlinks while excluding resource-fork and
     // extended-attribute sidecars. Nothing is written into the source app.
-    await run('/usr/bin/ditto',['--norsrc','--noextattr',application,path.join(staging,'SceneForge.app')]);
+    await run('/usr/bin/ditto',['--norsrc','--noextattr',application,path.join(staging,'Creator Compiler.app')]);
     await symlink('/Applications',path.join(staging,'Applications'));
-    await writeFile(path.join(staging,'How to install SceneForge.txt'),[
-      'INSTALL SCENEFORGE',
+    await writeFile(path.join(staging,'How to install Creator Compiler.txt'),[
+      'INSTALL CREATOR COMPILER',
       '',
-      '1. Drag SceneForge.app onto the Applications folder in this window.',
-      '2. Open Applications and launch SceneForge.',
+      '1. Drag Creator Compiler.app onto the Applications folder in this window.',
+      '2. Open Applications and launch Creator Compiler.',
       '3. Eject this disk image after copying finishes.',
       '',
       'Requires macOS 14 or later on Apple silicon.',
       'The app asks for camera, microphone and screen-recording access only when needed.',
       '',
       signing,
-      'Installation help: https://github.com/Samin12/SceneForge/blob/main/docs/INSTALL.md',
+      'Installation help: https://github.com/Samin12/CreatorCompiler/blob/main/docs/INSTALL.md',
       '',
     ].join('\n'));
     const icon=path.join(application,'Contents','Resources','electron.icns');
@@ -82,6 +82,6 @@ export async function createDmg(appPath,outputFile){
 
 if(process.argv[1]&&path.resolve(process.argv[1])===fileURLToPath(import.meta.url)){
   const [app,output]=process.argv.slice(2);
-  if(!app||!output)throw Error('Usage: node scripts/create-dmg.mjs <SceneForge.app> <output.dmg>');
+  if(!app||!output)throw Error('Usage: node scripts/create-dmg.mjs <Creator Compiler.app> <output.dmg>');
   console.log(JSON.stringify(await createDmg(app,output)));
 }

@@ -42,7 +42,7 @@ function createRecordingHud({BrowserWindow,ipcMain,screen,getMainWindow,verifyMa
   const requiredHeight=112+(state.layout.camera?Math.round(width*9/16)+12:0)+(state.layout.script?300:0);
   const height=Math.min(expanded?Math.max(requiredHeight,valid?saved.height:112):112,area.height-12);
   bounds={width,height,x:Math.round(Math.max(area.x,Math.min(area.x+area.width-width,valid?saved.x:area.x+area.width-width-20))),y:Math.round(Math.max(area.y,Math.min(area.y+area.height-height,valid?saved.y:area.y+24)))};
-  hud=new BrowserWindow({...bounds,minWidth:340,minHeight:112,maxWidth:620,title:'SceneForge recording preview',type:'panel',frame:false,transparent:true,backgroundColor:'#00000000',show:false,resizable:true,alwaysOnTop:true,skipTaskbar:true,roundedCorners:true,webPreferences:{preload:path.join(__dirname,'recording-hud-preload.cjs'),contextIsolation:true,nodeIntegration:false,sandbox:true,backgroundThrottling:false}});
+  hud=new BrowserWindow({...bounds,minWidth:340,minHeight:112,maxWidth:620,title:'Creator Compiler recording preview',type:'panel',frame:false,transparent:true,backgroundColor:'#00000000',show:false,resizable:true,alwaysOnTop:true,skipTaskbar:true,roundedCorners:true,webPreferences:{preload:path.join(__dirname,'recording-hud-preload.cjs'),contextIsolation:true,nodeIntegration:false,sandbox:true,backgroundThrottling:false}});
   // Defense in depth only. macOS ScreenCaptureKit also explicitly excludes this
   // application's PID in native-recording.swift; this flag alone is insufficient.
   hud.setContentProtection(true);hud.setAlwaysOnTop(true,'floating');
